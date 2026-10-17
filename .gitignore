@@ -26,3 +26,6 @@ var/
 # Web UI
 web/node_modules/
 web/dist/
+
+# Generated test report (published to GitHub Pages by CI)
+site/
