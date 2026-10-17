@@ -1,0 +1,21 @@
+# Organizer dataset is fetched by scripts/fetch_data.sh, not committed
+data/*
+!data/.gitkeep
+
+# Secrets and local config
+.env
+.env.*
+
+# Python / Node
+__pycache__/
+*.pyc
+.venv/
+node_modules/
+dist/
+
+# Local stores
+*.db
+*.sqlite
+
+# OS
+.DS_Store
