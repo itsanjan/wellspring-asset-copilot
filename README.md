@@ -24,6 +24,7 @@ python3 -I ground_truth/ground_truth.py    # recomputes Q1-Q8 straight from the 
 |---|---|
 | `problem-statement/` | Organizer's challenge documents, copied as-is for reference |
 | `CONCEPT.md` | Proposal and architecture |
+| `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
 | `scripts/` | Helper scripts (data fetch) |
 | `data/` | Local dataset (git-ignored) |

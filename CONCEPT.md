@@ -137,7 +137,7 @@ user names a visual.
 |---|---|---|
 | Backend | Python, FastAPI | Fast to build; strong data tooling |
 | Store | SQLite or DuckDB, plus a local vector index | No infra; reloads fast |
-| LLM | Hosted model with tool calling for the copilot; Gemma 4 via AI Studio/OpenRouter as the free fallback | Cost is part of the write-up |
+| LLM | Mixed: strong hosted model for planning and composing answers, cheap model where an LLM is needed at load time; model is a config setting; Gemma 4 (AI Studio/OpenRouter/Ollama) as the free fallback | Cost per answer is part of the write-up |
 | UI | React chat with chart/map/table components | Generative UI inline |
 | Tests | Ground-truth scripts and a replay harness for Q1–Q18 | Proves correctness without the LLM |
 
@@ -160,9 +160,10 @@ user names a visual.
 - [x] Ground truth reproducing Q1–Q8 (`ground_truth/ground_truth.py`)
 
 **Next**
-- [ ] Sign off the stack and model choice (see Open questions)
-- [ ] Profile data quirks: report filename variants, nulls, missed inspections, drilled-later wells
-- [ ] Parse repair reports into structured facts; ground truth for Q9 and Q10
+- [x] Stack signed off: Python + React; mixed-model approach; new public repo (itsanjan/wellspring-asset-copilot)
+- [ ] Profile remaining data quirks: nulls, missed inspections, drilled-later wells (report filename variants handled by following `report_file`)
+- [x] Parse repair reports into structured facts (regex over the compliance table, 616/616 SR-02 rows); ground truth for Q10 matches (`ground_truth/reports.py`, `q10.py`)
+- [ ] Ground truth for Q9 (needs regulator events, RCA counts, open actions)
 - [ ] Write the loader and derived views as the product code, not just the ground-truth script
 - [ ] Draft tool schemas and agent prompt
 - [ ] Build the UI shell with user picker
@@ -176,9 +177,10 @@ user names a visual.
 
 ## 7. Open questions
 
-1. Which model(s) will run the copilot, and what is the budget (free tier vs. paid)?
-2. Python/FastAPI plus React acceptable, or another stack?
-3. Build in this repo or a new public repo of your own? The submission needs a public
-   open-source repo that is yours.
-4. Anything in the time-sensitive final two hours (loading the test dataset) we should
+1. Which strong model drives the interactive agent, and what is the budget? (Mixed approach agreed; the specific model and spend are not.)
+2. Anything in the time-sensitive final two hours (loading the test dataset) we should
    automate now, such as a single `make load DATA=...` command?
+
+Resolved: Python/FastAPI plus React; new public repo `itsanjan/wellspring-asset-copilot`.
+
+See [`docs/DIAGRAMS.md`](docs/DIAGRAMS.md) for the flows and diagrams to verify the design.
