@@ -164,14 +164,14 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
             row["raw_wellhead_temp_c"] = v["raw_wellhead_temp_c"]
             row["corrections_applied"] = [e for e in overlay.related_context(ctx.con, v["inspection_id"])["overlay"] if e["status"] == "active"]
             flags.append({"kind": "correction_applied", "refs": [v["inspection_id"], v["overlay_ids"]],
-                          "message": f"{v['asset_id']}: latest reading corrected ({v['overlay_ids']}); raw value {v['raw_wellhead_temp_c']} C kept"})
+                          "message": f"{v['asset_id']}: latest reading corrected ({v['overlay_ids']}); raw value {v['raw_wellhead_temp_c']} °C kept"})
             if v["notes"]:
                 flags.append({"kind": "conflict", "refs": [v["inspection_id"]],
                               "message": f"{v['asset_id']}: inspector remark '{v['notes']}' may disagree with the corrected value"})
         rows.append(row)
-        evidence.append({"kind": "inspection", "ref": v["inspection_id"], "detail": f"{v['asset_id']} {v['inspected_at']} wellhead {v['wellhead_temp_c']} C, air {v['ambient_temp_c']} C", "source": f"assets/{v['asset_id']}/inspections.jsonl"})
+        evidence.append({"kind": "inspection", "ref": v["inspection_id"], "detail": f"{v['asset_id']} {v['inspected_at']} wellhead {v['wellhead_temp_c']} °C, air {v['ambient_temp_c']} °C", "source": f"assets/{v['asset_id']}/inspections.jsonl"})
         if thr:
-            evidence.append({"kind": "manual", "ref": thr["source"], "detail": f"{v['well_type']} producing when wellhead >= {thr['value']} C above ambient", "source": thr["source"]})
+            evidence.append({"kind": "manual", "ref": thr["source"], "detail": f"{v['well_type']} producing when wellhead >= {thr['value']} °C above ambient", "source": thr["source"]})
         evidence += [{"kind": "repair", "ref": m["maintenance_id"], "detail": m["issue"], "source": f"assets/{v['asset_id']}/maintenance.jsonl"} for m in open_repairs]
         evidence += [{"kind": "note", "ref": n["note_id"], "detail": n["text"], "source": f"assets/{v['asset_id']}/context.jsonl"} for n in notes]
         evidence += [{"kind": "overlay", "ref": e["entry_id"], "detail": e["text"], "source": "overlay"} for e in user_says]
@@ -190,10 +190,10 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
     if len(rows) == 1:
         r = rows[0]
         visuals["card"] = {"type": "card", "title": f"{r['asset_id']} ({r['name']})", "status": r["status"], "fields": {
-            "Well type": r["well_type"], "Wellhead above air": f"{r['delta_c']} C (limit {r['threshold_c']} C)",
+            "Well type": r["well_type"], "Wellhead above air": f"{r['delta_c']} °C (limit {r['threshold_c']} °C)",
             "Last inspection": f"{r['inspection_id']} on {r['inspected_at'][:10]}, {r['method']}, by {r['inspector']}",
             "Recorded status": r["recorded_status"] + (" (out of date)" if r["recorded_status_stale"] else ""),
-            "Why": "; ".join(r["explanations"]) or "no recorded reason"}}
+            ("Why" if r["producing"] == 0 else "Context"): "; ".join(r["explanations"]) or ("no recorded reason" if r["producing"] == 0 else "—")}}
     return _result(rows, {"wells": len(rows), "not_producing": sum(1 for r in rows if r["producing"] == 0), "today": ctx.today.isoformat()},
                    evidence, visuals, flags)
 
@@ -210,11 +210,11 @@ def inspection_history(ctx, asset_id, start=None, end=None, last_n=None):
         rows = rows[-int(last_n):]
     off = [r for r in rows if r["producing"] == 0]
     visuals = {"line": {"type": "line", "title": f"{asset_id} wellhead vs air temperature", "x": "day",
-                        "series": [{"key": "wellhead_temp_c", "label": "Wellhead (C)"}, {"key": "ambient_temp_c", "label": "Air (C)"}],
+                        "series": [{"key": "wellhead_temp_c", "label": "Wellhead"}, {"key": "ambient_temp_c", "label": "Air"}],
                         "points": [{k: r[k] for k in ("day", "wellhead_temp_c", "ambient_temp_c", "producing")} for r in rows],
                         "markers": [{"x": r["day"], "label": "not producing"} for r in off]},
                "table": _table(rows, ["inspection_id", "day", "wellhead_temp_c", "ambient_temp_c", "delta_c", "producing"])}
-    flags = [{"kind": "correction_applied", "refs": [r["inspection_id"]], "message": f"{r['inspection_id']} corrected ({r['overlay_ids']}), raw {r['raw_wellhead_temp_c']} C"} for r in rows if r["overlay_ids"]]
+    flags = [{"kind": "correction_applied", "refs": [r["inspection_id"]], "message": f"{r['inspection_id']} corrected ({r['overlay_ids']}), raw {r['raw_wellhead_temp_c']} °C"} for r in rows if r["overlay_ids"]]
     return _result(rows, {"readings": len(rows), "first": rows[0]["day"] if rows else None, "last": rows[-1]["day"] if rows else None,
                           "not_producing_days": [r["day"] for r in off]},
                    [{"kind": "inspection", "ref": r["inspection_id"], "detail": r["day"], "source": f"assets/{asset_id}/inspections.jsonl"} for r in rows],
@@ -595,7 +595,7 @@ def record_well_statement(ctx, asset_id, text, claimed_status=None, valid_from=N
     if contradicts:
         flags.append({"kind": "conflict", "refs": [latest["inspection_id"], e["entry_id"]],
                       "message": f"claim '{claimed_status}' contradicts {latest['inspection_id']} ({latest['inspected_at'][:10]}, by {latest['inspector']}): "
-                                 f"wellhead {latest['delta_c']} C above air vs limit {latest['threshold_c']} C -> {latest['status']}. Stored as unconfirmed; ask for confirmation"})
+                                 f"wellhead {latest['delta_c']} °C above air vs limit {latest['threshold_c']} °C -> {latest['status']}. Stored as unconfirmed; ask for confirmation"})
     for x in others:
         flags.append({"kind": "other_statement", "refs": [x["entry_id"]], "message": f"{x['author_name']} earlier said: {x['text']} ({x['status']})"})
     for n in latest["active_notes"]:

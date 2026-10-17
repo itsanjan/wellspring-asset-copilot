@@ -22,3 +22,7 @@ dist/
 
 # Local database
 var/
+
+# Web UI
+web/node_modules/
+web/dist/

@@ -66,7 +66,8 @@ CREATE TABLE conversations (
 );
 CREATE TABLE turns (
     seq INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL, user_id TEXT NOT NULL,
-    role TEXT NOT NULL, text TEXT, asset_ids TEXT, created_at TEXT NOT NULL
+    role TEXT NOT NULL, text TEXT, asset_ids TEXT, created_at TEXT NOT NULL,
+    answer_json TEXT   -- full answer (visual, evidence, flags, usage) for assistant turns
 );
 CREATE INDEX ix_turns_user ON turns (user_id, created_at);
 

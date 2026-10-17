@@ -225,6 +225,6 @@ class Copilot:
         wells = sorted(set(re.findall(r"WELL-\d{4}", answer["text"])))
         con.execute("INSERT INTO turns (conversation_id, user_id, role, text, asset_ids, created_at) VALUES (?, ?, 'user', ?, ?, ?)",
                     (conversation_id, user_id, question, json.dumps(sorted(set(re.findall(r"WELL-\d{4}", question)))), now))
-        con.execute("INSERT INTO turns (conversation_id, user_id, role, text, asset_ids, created_at) VALUES (?, ?, 'assistant', ?, ?, ?)",
-                    (conversation_id, user_id, answer["text"], json.dumps(wells), now))
+        con.execute("INSERT INTO turns (conversation_id, user_id, role, text, asset_ids, created_at, answer_json) VALUES (?, ?, 'assistant', ?, ?, ?, ?)",
+                    (conversation_id, user_id, answer["text"], json.dumps(wells), now, json.dumps(answer, default=str)))
         con.commit()

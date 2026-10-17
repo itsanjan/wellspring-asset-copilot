@@ -20,6 +20,11 @@ python3 -m wellspring.loader --data data/sample-data --db var/wellspring.db   # 
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
 export ANTHROPIC_API_KEY=...   # the copilot uses Claude Opus 5.5 by default
 .venv/bin/python -m wellspring.chat --user U-201 "Is WELL-0001 producing oil right now? Show me its status card." 
+
+# Web UI (chat, user picker, inline visuals, citations)
+(cd web && npm install && npm run build)
+.venv/bin/python -m uvicorn wellspring.server:app --port 8000   # open http://localhost:8000
+# for UI development: run the server as above, then `cd web && npm run dev` (http://localhost:5173, proxies /api)
 ```
 
 ## Layout
@@ -31,7 +36,8 @@ export ANTHROPIC_API_KEY=...   # the copilot uses Claude Opus 5.5 by default
 | `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
 | `docs/QA-VALIDATION-PLAN.md` | QA plan: scenarios, functional and non-functional checks, with status tracking |
 | `tests/` | Unit, parity, and end-to-end tests (`python3 -m unittest discover -s tests -t .`) |
-| `wellspring/` | Product code: loader, rule parser, SQLite schema and views, overlay, tools, agent, CLI chat |
+| `wellspring/` | Product code: loader, rule parser, SQLite schema and views, overlay, tools, agent, CLI chat, HTTP API |
+| `web/` | React chat UI (Vite + TypeScript, Recharts, Leaflet) |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
 | `scripts/` | Helper scripts (data fetch) |
 | `data/` | Local dataset (git-ignored) |
