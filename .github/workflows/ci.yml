@@ -23,7 +23,11 @@ jobs:
       # The organizers' dataset is fetched, never committed (see README).
       - name: Fetch sample dataset
         run: scripts/fetch_data.sh
-      - name: Unit, integration and e2e-harness tests
+      # The app (agent, server) targets Python 3.12. On 3.9 only the data layer is checked and the app tests skip.
+      - name: Install app dependencies
+        if: matrix.python-version != '3.9'
+        run: pip install -r requirements.txt httpx
+      - name: Unit, integration, agent, server and e2e-harness tests (no model calls)
         run: python3 -m unittest discover -s tests -t . -v
-      # Enable once the app has a start command and a free model key is stored as a repo secret:
-      #   COPILOT_URL=http://localhost:8000 python3 -m unittest tests.e2e.test_copilot -v
+      # The live end-to-end run makes billed model calls, so it is manual, not part of CI:
+      #   ANTHROPIC_API_KEY=... COPILOT_ADAPTER=tests.e2e.adapter:ask python3 -m unittest tests.e2e.test_copilot -v

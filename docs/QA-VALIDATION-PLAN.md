@@ -4,17 +4,17 @@ Scope: Wellspring, the asset-intelligence copilot for the FlytBase Hack Day chal
 This is the single place that says **what must be true, how we prove it, and whether it is proven yet**.
 
 - Last updated: 2026-10-17
-- Suite at last run: **56 tests: 53 pass, 2 skipped, 1 expected failure.** The 2 skipped are the live-app e2e tests (waiting for the app). The expected failure is a known bug, see section 7.
+- Suite at last run (Python 3.12, app dependencies installed): **134 tests: 130 pass, 2 skipped, 2 expected failures.** The 2 skipped are the live-model e2e tests (slow; billed with Claude, free with local Ollama; run by hand). The 2 expected failures are known bugs, see section 7. On Python 3.9 without the app dependencies, the app tests skip and 81 run.
 - Source of truth for expected answers: [`problem-statement/03-evaluation-queries.md`](../problem-statement/03-evaluation-queries.md)
 
 ## How to read status
 
 | Mark | Meaning |
 |---|---|
-| ✅ | Automated, runs in CI, passing |
+| ✅ | Automated, runs in CI, passing (tool, agent and server tests use a scripted model, no network) |
 | 🟡 | Partly covered, or covered only by a script/manual check, gap noted |
 | ⬜ | Not started (the thing exists or can exist, but there is no test yet) |
-| ⛔ | Blocked: the component under test is not built yet |
+| ⛔ | Blocked: the component under test is not built yet (or, for UI rows, the UI has not been tested) |
 | 👁 | Manual check by design (judgement, demo, writing) |
 
 Update the status column in the same commit that changes the code or the test. A row only turns ✅ when a named test proves it.
@@ -26,13 +26,18 @@ Update the status column in the same commit that changes the code or the test. A
 | L1 Unit | One module in isolation (rule parsing) | `tests/test_rules.py` (14) | `python3 -m unittest discover -s tests -t .` | ✅ |
 | L2 Smoke | Ground-truth script still runs and prints Q1-Q8 | `tests/test_ground_truth.py` (4) | same | ✅ |
 | L3 Integration / parity | Product SQL views == LLM-free ground truth on all 200 wells, and == organizers' expected answers | `tests/test_parity.py` (17) | same | ✅ |
+| L3b Tool layer (no model) | Every tool gives the organizers' expected facts for Q1-Q11 and Q14, and the feedback tools behave for Q12-Q17: corrections keep the original, scoped rules, claims flagged, private memory | `tests/test_tools.py` (25) | same | ✅ |
+| L3c Agent loop (scripted model) | Tool-use plumbing, visual taken from tool data, evidence, cost arithmetic, error handling, step limit, history rebuilt after restart | `tests/test_agent.py` (13) | same | ✅ (1 known bug) |
+| L3c2 Model backends | Provider selection (Ollama default, Claude opt-in), cost table, OpenAI-compatible backend used by free local models, compact tool results, readiness messages | `tests/test_llm.py` (23) | same | ✅ |
+| L3d HTTP API | Validation, 503 (model not ready) and 502 (provider error) mapping, health without key leak, shared feedback, conversation privacy between users | `tests/test_server.py` (13) | same | ✅ |
 | L4 E2E harness | The answer scorer is not vacuous; all 18 questions present in order | `tests/e2e/test_harness.py` (7) | same | ✅ |
-| L5 E2E live app | Question in, answer + visual + evidence out, scored against expected | `tests/e2e/test_copilot.py` (2, covers Q1-Q18) | `COPILOT_URL=... python3 -m unittest tests.e2e.test_copilot -v` | ⛔ app not built |
+| L4b E2E pipeline (scripted model) | Real Q1 case through adapter, agent, tools and database: a correct model passes, a wrong answer or wrong visual fails | `tests/e2e/test_pipeline.py` (4) | same | ✅ |
+| L5 E2E live model | The 18 questions through a real model, scored for facts, visual and evidence. Manual. Local Ollama is free; Claude is billed. | `tests/e2e/test_copilot.py` (2); quick Q1-Q10 runner: `scripts/run_eval.py` | `COPILOT_ADAPTER=tests.e2e.adapter:ask python3 -m unittest tests.e2e.test_copilot -v` (set `WELLSPRING_PROVIDER=anthropic` for Claude) | ⬜ ready, not yet run |
 | L6 Generalization | Same code on perturbed, synthetic and second datasets | `tests/test_generalization.py` (12), builders in `tests/synth.py` | same | ✅ on synthetic data; ⬜ on the organizers' test data until it arrives |
-| L7 Non-functional | Latency, cost, security, resilience | see section 5 | n/a | mostly ⬜ |
-| CI | Layers 1-4 on every push and PR, Python 3.9 and 3.12 | `.github/workflows/ci.yml` | GitHub Actions | 🟡 written, not yet run on GitHub |
+| L7 Non-functional | Latency, cost, security, resilience | see section 5 | n/a | partly |
+| CI | All layers except L5 on every push and PR: Python 3.12 full, Python 3.9 data layer only | `.github/workflows/ci.yml` | GitHub Actions | 🟡 previous config green; the updated config (installs app dependencies) runs on the next push |
 
-The e2e contract (HTTP or Python adapter) is documented in `tests/e2e/__init__.py`. Verified: an empty stub copilot fails the live-app tests with 131 "missing fact" messages, so a wrong app cannot pass.
+The e2e contract is documented in `tests/e2e/__init__.py`: an in-process adapter (recommended, fresh database each run) or the real HTTP API (`POST /api/ask`). Verified: an empty stub copilot fails the live-model tests with 131 "missing fact" messages, so a wrong app cannot pass.
 
 ## 2. Functional scenarios
 
@@ -52,34 +57,34 @@ The e2e contract (HTTP or Python adapter) is documented in `tests/e2e/__init__.p
 | F-D10 | Latest inspection per well | Parity for all 200 wells | `test_latest_inspection_per_well` | ✅ |
 | F-D11 | Repair-report facts parsed from the compliance table | 616/616 SR-02 rows; contained hours match Q10 | Q10 test (2 wells); full-table count is a script check | 🟡 add a count assertion |
 | F-D12 | Following `report_file`, not file-name patterns | Reports with variant names still load | load check warns on unresolved reports; no dedicated test | 🟡 |
-| F-D13 | Q9 compliance (SR-01..04, RC-04, RCA) derived generically | Matches Q9 expected for WELL-0001 and runs on all wells | `ground_truth/q9.py` exists; **no assertion in the suite**; not in `wellspring/` yet | ⬜ |
+| F-D13 | Q9 compliance (SR-01..04, RC-04, RCA) derived generically | Matches Q9 expected for WELL-0001 | `test_q9_well_0001_four_breaches_and_open_items`. Running on all wells and comparing with `ground_truth/q9.py` is not asserted. | 🟡 |
 | F-D14 | Multiple datasets side by side (sample + test data) | Later folders add wells or replace same-ID records | `NewWellTypeAndSecondDatasetTest` (201 wells, same-ID override) | ✅ |
 | F-D15 | Data quirks: nulls, missed inspections, wells drilled later | Handled without crashing or inventing values | Well with only an inspections file loads (✅). **NULL temperature is counted as downtime (bug, expected-fail test).** Profiling of real quirks still open. | 🟡 |
 
 ### 2.2 Question coverage (organizers' 18 questions)
 
-"Data" = the product's derived data gives the expected facts (L3). "E2E" = the live copilot returns them with the right visual and evidence (L5).
+"Tools" = the tool layer returns the expected facts, visuals and flags with no model (L3/L3b, automated). "Live model" = the real model words the answer correctly, picks the right visual and cites the evidence (L5, not yet run).
 
-| Q | What it tests | Data | E2E |
+| Q | What it tests | Tools | Live model |
 |---|---|---|---|
-| Q1 | Status card: producing now, last inspection, who, why (note), stale recorded status | ✅ | ⛔ |
-| Q2 | Table of non-producing wells in an area, with reasons; says "no recorded reason" rather than inventing | ✅ (wells and deltas); reasons need notes/repairs ⬜ | ⛔ |
-| Q3 | Line chart of 13 readings with non-producing marked | ✅ | ⛔ |
-| Q4 | Spill count and volume, corrected detection excluded | ✅ | ⛔ |
-| Q5 | Downtime days in a year, with the derivation shown | ✅ | ⛔ |
-| Q6 | Top-3 downtime in an area and window, bar chart | ✅ | ⛔ |
-| Q7 | Map of real spills in 90 days | ✅ | ⛔ |
-| Q8 | Heatmap area x month | ✅ | ⛔ |
-| Q9 | Rules broken in 12 months and what is still open | ⬜ (ground truth only) | ⛔ |
-| Q10 | Spills not contained within SOP time (fact only in repair reports) | ✅ | ⛔ |
-| Q11 | Remembers a previous conversation | ✅ costs only; memory ⛔ | ⛔ |
-| Q12 | Correct raw data, keep the original, re-answer | ⛔ overlay store | ⛔ |
-| Q13 | Correct AI analysis, cascade to reportability and SOP deadlines | ⛔ | ⛔ |
-| Q14 | Scoped rule for a well type, applied only to that type | ⛔ | ⛔ |
-| Q15 | A correction reaches other users | ⛔ | ⛔ |
-| Q16 | Shared notes visible, private memory not leaked | ⛔ | ⛔ |
-| Q17 | Disagreement with data: keep both, mark unconfirmed | ⛔ | ⛔ |
-| Q18 | Disagreement about the AI's analysis: show both sources | ⛔ | ⛔ |
+| Q1 | Status card: producing now, last inspection, who, why (note), stale recorded status | ✅ | ⬜ (scripted-model pipeline ✅) |
+| Q2 | Table of non-producing wells with reasons; "no recorded reason" rather than an invented cause | ✅ | ⬜ |
+| Q3 | Line chart of 13 readings with non-producing marked | ✅ | ⬜ |
+| Q4 | Spill count and volume, corrected detection excluded | ✅ | ⬜ |
+| Q5 | Downtime days in a year, with the derivation shown | ✅ | ⬜ |
+| Q6 | Top-3 downtime in an area and window, bar chart | ✅ | ⬜ |
+| Q7 | Map of real spills in 90 days | ✅ | ⬜ |
+| Q8 | Heatmap area x month | ✅ | ⬜ |
+| Q9 | Rules broken in 12 months and what is still open | ✅ (`compliance_check`; breaches, open items, shut-in note) | ⬜ |
+| Q10 | Spills not contained within SOP time (fact only in repair reports) | ✅ | ⬜ |
+| Q11 | Remembers a previous conversation | ✅ costs; memory tool and history rebuilt from the database | ⬜ |
+| Q12 | Correct raw data, keep the original, re-answer, flag the inspector's remark | ✅ | ⬜ |
+| Q13 | Correct AI analysis, cascade to reportability, SR-01, SR-03 date, outdated report | ✅ | ⬜ |
+| Q14 | Scoped rule for a well type, applied only to that type | ✅ | ⬜ |
+| Q15 | A correction reaches other users | ✅ | ⬜ |
+| Q16 | Shared notes visible, private memory not leaked | ✅ (tools and HTTP API) | ⬜ |
+| Q17 | Disagreement with data: keep both, mark unconfirmed | ✅ (claim flagged, never overrides data) | ⬜ |
+| Q18 | Disagreement about the AI's analysis: show both sources | ✅ both notes available | ⬜ (the "yes, it is crude" verdict is the model's) |
 
 The scored cases for all 18 are in `tests/e2e/cases.py`.
 
@@ -87,13 +92,16 @@ The scored cases for all 18 are in `tests/e2e/cases.py`.
 
 | ID | Scenario | Pass criteria | Status |
 |---|---|---|---|
-| F-T01 | Numbers come from tool code, never LLM arithmetic | Every number in an answer traces to a tool result | ⛔ |
-| F-T02 | Evidence on every claim | Each answer cites record IDs and document sections (`min_citations` in e2e cases) | ⛔ |
-| F-T03 | Typed tools exist and validate input: `well_status`, `downtime`, `spills`, `repairs`, `compliance_check`, `search_docs`, `record_feedback`, `get_context`, `render` | Unit test per tool with bad input rejected | ⛔ |
-| F-T04 | Unknown well, area or user | Clear "not found", no invented data | ⛔ |
-| F-T05 | Ambiguous question | Asks or states the assumption | ⛔ |
-| F-T06 | Document search returns cited passages | `search_docs` returns section citations; chunking is loaded | 🟡 chunks load (`doc_chunks`), no retrieval test |
-| F-T07 | Model failure or rate limit | Falls back or fails gracefully with a message | ⛔ |
+| F-T01 | Numbers come from tool code, never LLM arithmetic | Visual data comes from the tool result, whatever the model typed | `test_visual_data_comes_from_the_tool_not_from_the_model`. Numbers in the model's own prose are only checked live. | 🟡 |
+| F-T02 | Evidence on every claim | Tools return record IDs and document sections; answers carry them (`min_citations` in e2e cases) | Tool evidence asserted in L3b; evidence reaches the answer in `test_tool_then_present...`. Inline citations by the model: live only. | 🟡 |
+| F-T03 | Typed tools validate input | Unknown tool, unknown argument, missing argument and invalid corrections are rejected | `test_unknown_inputs_are_rejected_not_invented`, `test_correction_input_validation` | ✅ |
+| F-T04 | Unknown well, area or user | Clear "not found", no invented data | Unknown user: ✅ (agent and HTTP 404). Unknown well or area through the tools: no test. | 🟡 |
+| F-T05 | Ambiguous question | Asks or states the assumption | live only | ⬜ |
+| F-T06 | Document search returns cited passages | `search_docs` and `read_doc_section` return section citations | chunks load (`doc_chunks`); tool results not asserted | 🟡 |
+| F-T07 | Model failure or rate limit | Fails with a clear message, never a half-saved turn | Model error saves nothing; HTTP 503 when the model is not ready (with the reason, and the model is not called), 502 naming the error otherwise; runaway tool loop stopped at the step limit; invalid JSON tool arguments from a small model go back to it as an error. Retry and rate-limit backoff: not tested. | 🟡 |
+| F-T08 | Refusal handling | A refusal returns a polite answer, not an error | `test_refusal_is_returned_politely` | ✅ |
+| F-T09 | Model choice | Free local Ollama by default; an Anthropic key alone never switches to paid Claude; unknown provider rejected with the valid choices | `ProviderSelectionTest` (7) | ✅ |
+| F-T10 | Small free models cope | Compact tool results, truncation note with totals kept in the summary, visual chosen from the question's wording when the model names none, model that skips `present_answer` still answers | `SmallModelThroughTheAgentTest` (5) | ✅ scripted; real Gemma quality is a live-run question |
 
 ### 2.4 Generative UI
 
@@ -109,15 +117,15 @@ The scored cases for all 18 are in `tests/e2e/cases.py`.
 
 | ID | Scenario | Pass criteria | Status |
 |---|---|---|---|
-| F-M01 | Past conversations recalled by the same user | Q11 | ⛔ |
-| F-M02 | Private memory never crosses users | Q16 `must_not` leak check | ⛔ |
-| F-M03 | Raw-data correction keeps the original, author and reason | Original value still readable | ⛔ |
-| F-M04 | Corrections are append-only and attributed | No silent overwrite; audit trail | ⛔ |
-| F-M05 | Correction scope respected: one well vs a well type | Q14, WELL-0102 not affected | ⛔ |
-| F-M06 | Correction applies to every later answer for every user | Q15 | ⛔ |
-| F-M07 | Shared notes and unconfirmed claims | Q16, Q17 | ⛔ |
-| F-M08 | Conflicts shown, not silently resolved | Q12 pump-jack note, Q17, Q18 | ⛔ |
-| F-M09 | Restart persistence | State survives a restart | ⛔ |
+| F-M01 | Past conversations recalled by the same user | Q11: `recall_my_conversations` returns the user's own history; history is rebuilt from the database after a restart | `test_q16_private_memory...`, `test_history_is_rebuilt_from_the_database_after_a_restart` | ✅ tool level |
+| F-M02 | Private memory never crosses users | Another user sees no conversations and gets 404 on the owner's | `test_q16_private_memory_is_empty_for_another_user`, `PrivacyTest` (4) | ✅ via HTTP and tools. **Gap at agent level, see section 7.** |
+| F-M03 | Raw-data correction keeps the original, author and reason | Original value still readable and the raw record unchanged | `test_q12_raw_correction_is_kept...`, `test_original_record_is_never_mutated` | ✅ |
+| F-M04 | Corrections are append-only and attributed | Author, original value and reason recorded; shared feed shows them | `SharedFeedbackTest` | ✅ |
+| F-M05 | Correction scope respected: one well vs a well type | Q14: WELL-0120 added, T200 WELL-0102 not | `test_q14_scoped_rule_adds_t350_well_but_not_t200` | ✅ |
+| F-M06 | Correction applies to every later answer for every user | Q15 | `test_q15_correction_reaches_another_user...`, `test_q14_rule_is_visible_to_other_users` | ✅ |
+| F-M07 | Shared notes and unconfirmed claims | Q16, Q17 | `test_q16_shared_statement...`, `test_q17_claim_against_the_data...` | ✅ |
+| F-M08 | Conflicts shown, not silently resolved | Q12 inspector remark, Q17 claim, Q18 notes | flags asserted in L3b | ✅ tool level; model wording live only |
+| F-M09 | Restart persistence | State survives a restart | history rebuilt from the database (above); overlay lives in the database | ✅ |
 
 ## 3. Edge and negative cases to cover when the app exists
 
@@ -126,12 +134,12 @@ The scored cases for all 18 are in `tests/e2e/cases.py`.
 | E-01 | Question about a well that does not exist (WELL-9999) | "No such well", no data | ⛔ |
 | E-02 | Date window with no records | Says none found, still shows the empty visual | ⛔ |
 | E-03 | Future date or "today" is not 16 Oct 2026 | Date comes from config, not hard-coded | ⬜ ground truth hard-codes `TODAY` |
-| E-04 | Well with a note but no maintenance record (Q1 shut-in) | Note is the cited reason | ⛔ |
-| E-05 | Stale `recorded_status` | Derived status wins, staleness flagged | ✅ data (Q1 test) / ⛔ answer |
-| E-06 | Corrected detection | Excluded from counts, still visible as history | ✅ data / ⛔ answer |
-| E-07 | Two users disagree | Both kept, one marked unconfirmed | ⛔ |
+| E-04 | Well with a note but no maintenance record (Q1 shut-in) | Note is the cited reason | ✅ tool level (`CTX-0001-003` in evidence) |
+| E-05 | Stale `recorded_status` | Derived status wins, staleness flagged | ✅ tool level (Q1) |
+| E-06 | Corrected detection | Excluded from counts, still visible as history | ✅ tool level (Q4 `excluded` list) |
+| E-07 | Two users disagree | Both kept, one marked unconfirmed | ✅ tool level (Q17); model wording live only |
 | E-08 | Instruction inside a note or repair report ("ignore previous instructions") | Treated as data, never obeyed | ⬜ |
-| E-09 | Very long or empty question | Handled without error | ⛔ |
+| E-09 | Very long or empty question | Handled without error | ✅ HTTP (422 for empty and over 4,000 characters). **CLI sends an empty question to the model.** |
 | E-10 | Same question twice | Same facts both times (determinism of facts) | ⛔ |
 
 ## 4. Generalization (the late test dataset)
@@ -152,17 +160,17 @@ The problem statement warns that a system tuned to the sample questions breaks. 
 |---|---|---|---|---|
 | N-01 | Correctness | Derived numbers equal an independent implementation | L3 parity | ✅ |
 | N-02 | Determinism | Same data in, same derived numbers out | Idempotent load test | ✅ for data / ⛔ for answers |
-| N-03 | Reproducibility | Fresh clone reaches green tests with documented steps | CI from a clean checkout | 🟡 CI written, not yet run |
+| N-03 | Reproducibility | Fresh clone reaches green tests with documented steps | CI from a clean checkout (green run on GitHub) | ✅ (re-confirm after the CI change) |
 | N-04 | Performance: load | Full 200-well load in a few seconds | Parity suite loads and runs in about 2 s | ✅ observed, no threshold test |
 | N-05 | Performance: answer latency | Target set, e.g. p95 under the event's patience limit | Time each e2e question | ⛔ target not set |
-| N-06 | Cost | Cost per answer tracked for the write-up | Token and price log per call | ⛔ |
-| N-07 | Resilience: model limits | Free tiers allow ~50 requests per day; handle 429, retry, fall back | Fault injection with a stub | ⛔ |
-| N-08 | Privacy | One user's memory is unreadable by another | Q16 plus API-level test | ⛔ |
+| N-06 | Cost | Cost per answer tracked for the write-up | `usage.cost_usd` from the price table (Claude arithmetic and zero for local/free models are tested); real figures need a live run | 🟡 |
+| N-07 | Resilience: model limits | Clear errors; retry and fallback on 429 | HTTP maps auth to 503 and other failures to 502 (tested). 429 retry: not tested. | 🟡 |
+| N-08 | Privacy | One user's memory is unreadable by another | `PrivacyTest` (HTTP), tool-level memory test | 🟡 HTTP ✅, agent level has a bug |
 | N-09 | Security: secrets | No API keys in the repo or logs | Secret scan in CI, `.gitignore` covers `.env*` | 🟡 ignore rules only |
 | N-10 | Security: injection | Document and note text cannot change tool behaviour | E-08 | ⬜ |
 | N-11 | Security: input handling | SQL built only from parameters; no path traversal in file reads | Code review, tests with hostile input | 🟡 loader uses parameters, tools not built |
-| N-12 | Auditability | Every answer shows its evidence; every correction shows author, time, reason | F-T02, F-M04 | ⛔ |
-| N-13 | Portability | Python 3.9 and 3.12 | CI matrix | 🟡 3.9 verified locally, matrix not yet run |
+| N-12 | Auditability | Every answer shows its evidence; every correction shows author, time, reason | F-T02, F-M04 | 🟡 corrections ✅, answer citations live only |
+| N-13 | Portability | Data layer on Python 3.9 and 3.12; app tests on 3.12 | CI matrix. The server now avoids 3.10-only annotations, so the app may run on 3.9, but its dependencies are only installed and tested on 3.12 in CI. | ✅ data layer; app 3.12 |
 | N-14 | Maintainability | Rules in data, not code | F-D05, G-01, G-05 | ✅ |
 | N-15 | Observability | Failures are logged with enough context to debug | Review | ⛔ |
 | N-16 | Accessibility and usability | Keyboard-usable chat, readable contrast, chart alt text | Manual check | ⛔ 👁 |
@@ -180,18 +188,21 @@ The problem statement warns that a system tuned to the sample questions breaks. 
 
 ## 7. Known gaps (ranked)
 
-1. **Live app tests are blocked** until the agent loop, tools and UI exist. Everything in section 2.2 under E2E depends on it.
-2. **Q9 has no automated test at all.** The ground-truth script exists but nothing asserts its output and the product does not implement it (F-D13).
-3. **Generalization is proven on synthetic data only.** The real test is the organizers' dataset (section 9). The reference `ground_truth` hard-codes T200/T350 thresholds, so a new well type in their data makes the parity suite skip with a message, and a changed manual makes the producing and downtime parity tests fail until the reference is told the new rule by hand.
-4. **CI has not run on GitHub yet.** Pushing a workflow file needs the `workflow` token scope; the current `gh` login has `gist, read:org, repo` only. Fix: `gh auth refresh -s workflow`.
-5. **Bug: a NULL wellhead or ambient temperature is counted as not producing, i.e. 7 days of downtime** (`v_inspection` CASE falls through to ELSE 0). The sample data has no null temperatures, so no current answer is wrong, but it contradicts the design rule "unknown, never guessed". Fix: add `WHEN i.wellhead_temp_c IS NULL OR i.ambient_temp_c IS NULL THEN NULL` to the CASE in `wellspring/schema.sql`, then remove `@expectedFailure` from `test_null_reading_is_unknown_not_downtime`.
-6. **Hard-coded date** in ground truth (E-03) and the Q2 "reason" column depend on notes and repairs joined in, with no test yet.
-7. Non-functional targets (latency, cost per answer) are unset.
+1. **The live-model run has not been done.** Tools, agent, backends, server and the harness are tested without a model; whether a real model (default: local Gemma 4 on Ollama) words, cites and picks visuals correctly for Q1-Q18 is unproven, and small local models are the main risk. Run it by hand (section 1, L5): free Gemma first for a baseline, then Claude for the final numbers. `scripts/run_eval.py` gives a quick Q1-Q10 read; the e2e package scores all 18 including memory and multi-user.
+2. **Privacy gap at agent level.** `Copilot._states` is keyed by conversation ID alone. Within one process, a second user who supplies the first user's conversation ID is handed that user's in-memory history, and their turns are stored under the first user's conversation. The HTTP API blocks this (404, tested), so it is reachable only through the CLI or direct use of `Copilot`. Pinned as an expected failure in `test_agent.py`. Fix: key the cache by (user, conversation) and reject a conversation owned by someone else.
+3. **Bug: a NULL wellhead or ambient temperature is counted as not producing, i.e. 7 days of downtime** (`v_inspection` CASE falls through to ELSE 0). The sample data has no null temperatures, so no current answer is wrong, but it contradicts the design rule "unknown, never guessed". Fix: add `WHEN i.wellhead_temp_c IS NULL OR i.ambient_temp_c IS NULL THEN NULL` to the CASE in `wellspring/schema.sql`, then remove `@expectedFailure` from `test_null_reading_is_unknown_not_downtime`.
+4. **Generalization is proven on synthetic data only.** The real test is the organizers' dataset (section 9). The reference `ground_truth` hard-codes T200/T350 thresholds, so a new well type in their data makes the parity suite skip with a message, and a changed manual makes the producing and downtime parity tests fail until the reference is told the new rule by hand.
+5. **CLI error handling.** A wrong or missing key (with Claude selected), Ollama not running, a missing or wrong `--db`, an unknown user and an empty question all end in raw Python tracebacks, and a bad `--db` path leaves an empty SQLite file behind. Not covered by tests. (The HTTP API handles the equivalent cases with clear 503, 404 and 422 responses, tested.)
+6. **Q9 on every well** is not compared with `ground_truth/q9.py`, and the hard-coded `TODAY` in the ground truth (E-03) is untested.
+7. **UI untested.** There are no browser tests (F-U01 to F-U05).
+8. Non-functional targets (latency, cost per answer) are unset until a live run gives real numbers.
 
 ## 8. Change log
 
 | Date | Change |
 |---|---|
+| 2026-10-17 | The app moved to pluggable model providers (Ollama default, Claude opt-in) while the tests were being written, which broke the agent and server tests; they were updated to the new contract and `test_llm.py` (23) added. 134 tests. |
+| 2026-10-17 | Added tool-layer (25), agent-loop (13), HTTP API (11) and scripted-pipeline (4) tests, an in-process e2e adapter and the real `POST /api/ask` transport. 109 tests. Found an agent-level conversation leak (section 7) and the CLI error-handling gaps. CI installs app dependencies on 3.12. |
 | 2026-10-17 | Added generalization tests (12) on synthetic and perturbed data; parity suite can target any dataset via `WELLSPRING_DATA`; found NULL-temperature bug (section 7). 56 tests. |
 | 2026-10-17 | Plan created. 44 tests: unit (14), smoke (4), parity/integration (17), e2e harness (7), live e2e (2, skipped). Parity found no discrepancies between product views and ground truth. |
 
