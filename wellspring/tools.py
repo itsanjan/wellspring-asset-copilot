@@ -71,6 +71,17 @@ def _rule(ctx, name, well_type="*"):
     return r[0] if r else None
 
 
+def _rule_on(ctx, name, day, well_type="*"):
+    """A rule's value on a given day: a dated SOP revision (rule_versions) if there is one, else the fixed rule."""
+    d = str(day)[:10]
+    try:
+        v = _rows(ctx, "SELECT value, source FROM rule_versions WHERE name = ? AND IFNULL(valid_from, '0000') <= ? "
+                       "AND (valid_to IS NULL OR valid_to >= ?)", (name, d, d))
+    except sqlite3.OperationalError:  # database built before rule_versions existed
+        v = []
+    return {**v[0], "overridden": 0, "manual_value": v[0]["value"]} if v else _rule(ctx, name, well_type)
+
+
 def _users(ctx):
     return {r["user_id"]: r["name"] for r in _rows(ctx, "SELECT user_id, name FROM users")}
 
@@ -141,9 +152,10 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
     users, today = _users(ctx), ctx.today.isoformat()
     rows, evidence, flags = [], [], []
     for v in latest:
-        if only_not_producing and v["producing"] != 0:
-            continue
         w = _rows(ctx, "SELECT * FROM wells WHERE asset_id = ?", (v["asset_id"],))[0]
+        ops3 = _status_now(ctx, v, w)
+        if only_not_producing and ops3["producing"] != 0:
+            continue
         thr = _rule(ctx, "producing_delta_c", v["well_type"])
         open_repairs = _rows(ctx, "SELECT maintenance_id, issue, equipment_kind, started_at, completed_at FROM maintenance "
                                   "WHERE asset_id = ? AND SUBSTR(started_at, 1, 10) <= ? AND SUBSTR(completed_at, 1, 10) > ?",
@@ -153,14 +165,16 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
                       (v["asset_id"], today, today))
         user_says = [e for e in overlay.for_well(ctx.con, v["asset_id"]) if e["kind"] in ("note", "claim")
                      and (e["valid_to"] is None or e["valid_to"] >= today)]
-        status = {None: "unknown (no rule for this well type)", 1: "producing", 0: "not producing"}[v["producing"]]
-        stale = (w["recorded_status"] == "active" and v["producing"] == 0) or (w["recorded_status"] == "down" and v["producing"] == 1)
+        inspection_status = {None: "unknown (no rule for this well type)", 1: "producing", 0: "not producing"}[v["producing"]]
+        status = ops3["status"]
+        stale = (w["recorded_status"] == "active" and ops3["producing"] == 0) or (w["recorded_status"] == "down" and ops3["producing"] == 1)
         explanations = ([f"open repair {m['maintenance_id']}: {m['issue']} (started {m['started_at'][:10]}, planned end {m['completed_at'][:10]})" for m in open_repairs]
                         + [f"note {n['note_id']} by {users.get(n['author_user_id'], n['author_user_id'])}: {n['text']}" for n in notes if n["valid_to"]]
                         + [f"{e['entry_id']} ({e['kind']}, {e['status']}) by {e['author_name']}: {e['text']}" for e in user_says])
         row = {
             "asset_id": v["asset_id"], "name": w["name"], "well_type": v["well_type"], "area_id": v["area_id"],
-            "status": status, "producing": v["producing"], "delta_c": v["delta_c"],
+            "status": status, "producing": ops3["producing"], "status_source": ops3["source"],
+            "inspection_status": inspection_status, "status_note": ops3.get("note"), "delta_c": v["delta_c"],
             "wellhead_temp_c": v["wellhead_temp_c"], "ambient_temp_c": v["ambient_temp_c"],
             "threshold_c": thr["value"] if thr else None, "threshold_source": thr["source"] if thr else None,
             "inspection_id": v["inspection_id"], "inspected_at": v["inspected_at"], "method": v["method"],
@@ -186,6 +200,12 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
         evidence += [{"kind": "repair", "ref": m["maintenance_id"], "detail": m["issue"], "source": f"assets/{v['asset_id']}/maintenance.jsonl"} for m in open_repairs]
         evidence += [{"kind": "note", "ref": n["note_id"], "detail": n["text"], "source": f"assets/{v['asset_id']}/context.jsonl"} for n in notes]
         evidence += [{"kind": "overlay", "ref": e["entry_id"], "detail": e["text"], "source": "overlay"} for e in user_says]
+        if ops3.get("note"):
+            n = ops3["note"]
+            evidence.append({"kind": "note", "ref": n["note_id"], "detail": f"{n['created_at']} {n['text']}", "source": f"assets/{v['asset_id']}/context.jsonl"})
+            flags.append({"kind": "status_from_note", "refs": [v["inspection_id"], n["note_id"]],
+                          "message": f"{v['asset_id']}: latest inspection {v['inspection_id']} ({v['inspected_at'][:16]}) reads {inspection_status}, "
+                                     f"but the newer operator note {n['note_id']} ({n['created_at'][:16]}) says '{n['text']}' -> {status} (SOP-OPS OPS-3)"})
         if stale:
             flags.append({"kind": "stale_status", "refs": [v["asset_id"]], "message": f"{v['asset_id']}: recorded status '{w['recorded_status']}' disagrees with the latest inspection ({status})"})
         if v["producing"] == 0 and not explanations:
@@ -195,7 +215,7 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
         for e in user_says:
             if e["kind"] == "claim":
                 flags.append({"kind": "unconfirmed_claim", "refs": [e["entry_id"]], "message": f"{e['author_name']} said: {e['text']} (unconfirmed, contradicts data)"})
-    cols = ["asset_id", "well_type", "status", "delta_c", "threshold_c", "inspected_at", "inspector", "recorded_status", "explanations"]
+    cols = ["asset_id", "well_type", "status", "status_source", "delta_c", "threshold_c", "inspected_at", "inspector", "recorded_status", "explanations"]
     visuals = {"table": _table(rows, cols),
                "map": {"type": "map", "pins": [{"lat": r["lat"], "lon": r["lon"], "label": r["asset_id"], "detail": r["status"]} for r in rows]}}
     if len(rows) == 1:
@@ -207,6 +227,26 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
             ("Why" if r["producing"] == 0 else "Context"): "; ".join(r["explanations"]) or ("no recorded reason" if r["producing"] == 0 else "—")}}
     return _result(rows, {"wells": len(rows), "not_producing": sum(1 for r in rows if r["producing"] == 0), "today": ctx.today.isoformat()},
                    evidence, visuals, flags)
+
+
+def _status_now(ctx, v, w):
+    """A well's status right now (SOP-OPS OPS-3): its latest inspection reading, unless a shut-in or restart operator
+    note is more recent. A restart note makes it 'producing (unconfirmed)' until an inspection confirms it.
+    Plugged and abandoned wells are closed for good."""
+    if w.get("status") == "plugged_and_abandoned":
+        return {"status": f"plugged and abandoned on {w['decommissioned_on']}", "producing": 0, "source": "well record (decommissioned)"}
+    base = {None: "unknown (no rule for this well type)", 1: "producing", 0: "not producing"}[v["producing"]]
+    try:
+        n = _rows(ctx, "SELECT note_id, created_at, author_user_id, text, status_effect FROM notes WHERE asset_id = ? "
+                       "AND note_type = 'operator_note' AND status_effect IS NOT NULL AND created_at <= ? ORDER BY created_at DESC LIMIT 1",
+                  (v["asset_id"], ctx.today.isoformat() + "T23:59:59Z"))
+    except sqlite3.OperationalError:  # database built before notes were classified
+        n = []
+    if n and n[0]["created_at"] > v["inspected_at"]:
+        if n[0]["status_effect"] == "shut_in":
+            return {"status": "not producing (shut in)", "producing": 0, "source": f"operator note {n[0]['note_id']} newer than the inspection", "note": n[0]}
+        return {"status": "producing (unconfirmed)", "producing": 1, "source": f"operator note {n[0]['note_id']} newer than the inspection", "note": n[0]}
+    return {"status": base, "producing": v["producing"], "source": f"latest inspection {v['inspection_id']}"}
 
 
 def inspection_history(ctx, asset_id, start=None, end=None, last_n=None):
@@ -458,7 +498,8 @@ def compliance_check(ctx, asset_ids=None, area_id=None, start=None, end=None):
             if R["spill_reportable_bbl"] is None or (sp["bbl"] or 0) < R["spill_reportable_bbl"]["value"]:
                 continue
             major = R["spill_major_bbl"] and sp["bbl"] >= R["spill_major_bbl"]["value"]
-            limit_h = (R["sr01_major_report_hours"] if major else R["sr01_report_hours"])["value"]
+            limit_rule = R["sr01_major_report_hours"] if major else _rule_on(ctx, "sr01_report_hours", sp["day"])
+            limit_h = limit_rule["value"]
             ev = _rows(ctx, "SELECT * FROM regulatory_events WHERE related_inspection_id = ? ORDER BY date", (iid,))
             src = {"kind": "inspection", "ref": iid, "detail": f"{sp['bbl']} bbl reportable spill", "source": f"assets/{wid}/inspections.jsonl"}
             filed = [x for x in ev if x["event_type"] == "spill_report_filed"]

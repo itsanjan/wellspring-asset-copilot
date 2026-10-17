@@ -18,11 +18,11 @@ import sqlite3
 import sys
 from datetime import date, datetime, timedelta, timezone
 
-from . import reports, rules
+from . import documents, fieldnotes, reports, rules
 
 SCHEMA = os.path.join(os.path.dirname(__file__), "schema.sql")
 # User state that must survive a dataset reload (data tables are rebuilt from scratch).
-PRESERVE = ("overlay_entries", "conversations", "turns")
+PRESERVE = ("overlay_entries", "conversations", "turns", "user_prefs")
 
 
 def jl(path):
@@ -73,11 +73,31 @@ def load_fleet(con, root, stats):
             insert(con, "rule_params", {"well_type": t, "name": name, "value": value, "source": source})
     for name, (value, source) in rules.parse_sops(fleet).items():
         insert(con, "rule_params", {"well_type": "*", "name": name, "value": value, "source": source})
+    docs = documents.parse_fleet_docs(fleet)
+    for name, (value, source) in docs["ops"].items():
+        insert(con, "rule_params", {"well_type": "*", "name": name, "value": value, "source": source})
+    if docs["versions"]:
+        names = {v[0] for v in docs["versions"]}
+        con.executemany("DELETE FROM rule_versions WHERE name = ?", [(n,) for n in names])
+    for name, value, frm, to, source in docs["versions"]:
+        insert(con, "rule_versions", {"name": name, "value": value, "valid_from": frm, "valid_to": to, "source": source})
+    if docs["ops4"]:
+        con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('ops4_categories', ?)", (json.dumps(docs["ops4"]),))
+    for m in docs["mocs"]:
+        wells = m.pop("wells")
+        insert(con, "moc_memos", m)
+        for w in wells:
+            insert(con, "moc_wells", {"moc_id": m["moc_id"], "asset_id": w})
+    for r in docs["recalls"]:
+        insert(con, "recalls", r)
+    for lt in docs["letters"]:
+        insert(con, "letters", lt)
+    stats["structured_docs"] = len(docs["mocs"]) + len({r["notice_id"] for r in docs["recalls"]}) + len(docs["letters"])
     for md in sorted(glob.glob(f"{fleet}/well-types/*.md") + glob.glob(f"{fleet}/sops/*.md")):
         text = open(md).read()
-        m = re.search(r"Document ID:\s*(\S+)", text)
+        m = re.search(r"Document ID:\s*(\S+)", text) or re.search(r"Management of Change\s*[—-]\s*(MOC-[\w-]+)", text)
         kind = "manual" if "well-types" in md else "sop"
-        add_doc(con, kind, m.group(1) if m else os.path.basename(md), os.path.relpath(md, root), text)
+        add_doc(con, kind, m.group(1) if m else os.path.splitext(os.path.basename(md))[0], os.path.relpath(md, root), text)
         stats["documents"] += 1
 
 
@@ -90,7 +110,13 @@ def load_well(con, root, well_dir, stats):
         "team_id": meta.get("team_id"), "in_charge_user_id": meta.get("in_charge_user_id"),
         "lat": loc.get("lat"), "lon": loc.get("lon"), "installed_on": meta.get("installed_on"),
         "recorded_status": meta.get("recorded_status"), "last_inspection_id": last.get("inspection_id"),
-        "source": os.path.relpath(root)})
+        "source": os.path.relpath(root), "status": meta.get("status"), "decommissioned_on": meta.get("decommissioned_on")})
+    con.execute("DELETE FROM well_type_history WHERE asset_id = ?", (wid,))
+    con.execute("DELETE FROM well_team_history WHERE asset_id = ?", (wid,))
+    for h in meta.get("type_history") or []:
+        insert(con, "well_type_history", {"asset_id": wid, "well_type": h.get("well_type"), "valid_from": h.get("from"), "valid_to": h.get("to") or None})
+    for h in meta.get("team_history") or []:
+        insert(con, "well_team_history", {"asset_id": wid, "team_id": h.get("team_id"), "valid_from": h.get("from"), "valid_to": h.get("to") or None})
     for e in meta.get("equipment", []):
         insert(con, "equipment", {"equipment_id": e["equipment_id"], "asset_id": wid, "kind": e.get("kind"), "model": e.get("model")})
 
@@ -101,12 +127,13 @@ def load_well(con, root, well_dir, stats):
             "ambient_temp_c": r.get("ambient_temp_c"), "wellhead_temp_c": r.get("wellhead_temp_c"),
             "spill_detected": int(bool(r.get("spill_detected"))), "spill_area_pct": r.get("spill_area_pct"),
             "spill_est_volume_bbl": r.get("spill_est_volume_bbl"),
-            "evidence_images": json.dumps(r.get("evidence_images") or []), "notes": r.get("notes")})
+            "evidence_images": json.dumps(r.get("evidence_images") or []), "notes": r.get("notes"),
+            "recorded_at": r.get("recorded_at")})
         stats["inspections"] += 1
 
     maint = jl(f"{well_dir}/maintenance.jsonl")
     for r in maint:
-        c = r.get("cost_usd") or {}
+        c, rev = r.get("cost_usd") or {}, r.get("cost_revision") or {}
         insert(con, "maintenance", {
             "maintenance_id": r["maintenance_id"], "asset_id": wid, "started_at": r.get("started_at"),
             "completed_at": r.get("completed_at"), "maintenance_type": r.get("maintenance_type"),
@@ -114,7 +141,9 @@ def load_well(con, root, well_dir, stats):
             "technician_user_id": r.get("technician_user_id"), "contractor": r.get("contractor"),
             "downtime_hours": r.get("downtime_hours"), "cost_labor": c.get("labor"), "cost_parts": c.get("parts"),
             "cost_total": c.get("total"), "triggered_by_inspection_id": r.get("triggered_by_inspection_id"),
-            "report_file": r.get("report_file")})
+            "report_file": r.get("report_file"), "recorded_at": r.get("recorded_at"),
+            "cost_original_total": rev.get("original_total"), "cost_revised_on": rev.get("revised_on"),
+            "cost_revision_reason": rev.get("reason")})
         stats["maintenance"] += 1
 
     for r in jl(f"{well_dir}/regulatory-events.jsonl"):
@@ -126,13 +155,22 @@ def load_well(con, root, well_dir, stats):
         stats["regulatory_events"] += 1
 
     for r in jl(f"{well_dir}/context.jsonl"):
+        topic, effect, kind = fieldnotes.classify(r.get("text")) if r.get("note_type") == "operator_note" else (None, None, None)
         insert(con, "notes", {
+            "field": r.get("field"), "original_value": r.get("original_value"), "corrected_value": r.get("corrected_value"),
+            "topic": topic, "status_effect": effect, "equipment_kind": kind,
             "note_id": r["note_id"], "asset_id": wid, "created_at": r.get("created_at"),
             "author_user_id": r.get("author_user_id"), "note_type": r.get("note_type"),
             "inspection_id": r.get("inspection_id"), "text": r.get("text"),
             "valid_from": r.get("valid_from"), "valid_to": r.get("valid_to")})
         stats["notes"] += 1
 
+    for r in maint:
+        m = re.match(r"Follow-up to (MNT-[\w-]+)", r.get("issue") or "")
+        if m:
+            con.execute("INSERT OR IGNORE INTO report_details (maintenance_id, asset_id) VALUES (?, ?)", (r["maintenance_id"], wid))
+            con.execute("UPDATE report_details SET follow_up_of = ? WHERE maintenance_id = ?", (m.group(1), r["maintenance_id"]))
+    ops4 = json.loads((con.execute("SELECT value FROM meta WHERE key = 'ops4_categories'").fetchone() or ["[]"])[0])
     # Follow report_file, never the file name pattern: names vary.
     for mid, f in reports.reports_for_well(well_dir, maint).items():
         for proto, result in f["checks"].items():
@@ -142,6 +180,10 @@ def load_well(con, root, well_dir, stats):
                 "result": result, "detail": f["details"].get(proto), "contained_hours": f.get("contained_hours") if sr02 else None,
                 "limit_hours": f.get("containment_limit_hours") if sr02 else None,
                 "report_path": os.path.relpath(f["path"], root)})
+        d = f["details_text"]
+        insert(con, "report_details", {"maintenance_id": mid, "asset_id": wid, **d,
+                                       "failure_category": documents.classify_failure(d["root_cause"], ops4),
+                                       "report_path": os.path.relpath(f["path"], root)})
         add_doc(con, "report", mid, os.path.relpath(f["path"], root), open(f["path"]).read(), asset_id=wid)
         stats["reports"] += 1
 
@@ -172,7 +214,7 @@ def load(data_dirs, db_path, fresh=False, today=None):
         con.executescript(f.read())
     for table, (cols, rows) in saved.items():
         con.executemany(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", rows)
-    stats = {k: 0 for k in ("documents", "inspections", "maintenance", "regulatory_events", "notes", "reports")}
+    stats = {k: 0 for k in ("documents", "structured_docs", "inspections", "maintenance", "regulatory_events", "notes", "reports")}
     for root in data_dirs:
         load_fleet(con, root, stats)
         wells = sorted(glob.glob(f"{root}/assets/WELL-*"))
