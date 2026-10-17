@@ -3,8 +3,8 @@
     .venv/bin/python -m wellspring.chat --user U-201 "Is WELL-0001 producing oil right now?"
     .venv/bin/python -m wellspring.chat --user U-201 --conversation conv-abc "and why?"
 
-Uses local Ollama (free) unless ANTHROPIC_API_KEY is set; WELLSPRING_PROVIDER / WELLSPRING_MODEL choose
-explicitly (see wellspring/llm.py).
+Uses local Ollama (free) by default; WELLSPRING_PROVIDER / WELLSPRING_MODEL choose another provider or model
+(see wellspring/llm.py).
 """
 from __future__ import annotations
 

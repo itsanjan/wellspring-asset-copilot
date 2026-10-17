@@ -1,11 +1,11 @@
 """Model backends. The agent loop is provider-neutral; each backend speaks one API.
 
-Pick one with WELLSPRING_PROVIDER (default "auto": Claude if ANTHROPIC_API_KEY is set, otherwise local Ollama):
+Pick one with WELLSPRING_PROVIDER (default "ollama", whatever API keys are in the environment):
 
   ollama      free, local, no key, no rate limit   model default gemma4:12b-32k (gemma4:12b with a 32K context)
   openrouter  free tier (about 50 requests/day)    OPENROUTER_API_KEY, model default google/gemma-4-31b-it:free
   gemini      Google AI Studio free tier           GEMINI_API_KEY, model default gemma-4-31b-it
-  anthropic   paid                                 ANTHROPIC_API_KEY, model default claude-opus-5-5
+  anthropic   paid, opt-in only                    ANTHROPIC_API_KEY, model default claude-opus-5-5
 
 WELLSPRING_MODEL overrides the model for any provider.
 """
@@ -150,11 +150,10 @@ class OpenAICompatBackend:
 
 
 def make_backend(client=None):
-    provider = os.environ.get("WELLSPRING_PROVIDER", "auto").lower()
-    if provider == "auto":
-        provider = "anthropic" if (client is not None or os.environ.get("ANTHROPIC_API_KEY")) else "ollama"
+    """client: an Anthropic-style client injected by tests to script the model; it selects that backend."""
+    provider = os.environ.get("WELLSPRING_PROVIDER", "anthropic" if client is not None else "ollama").lower()
     if provider == "anthropic":
         return AnthropicBackend(client=client)
     if provider in OPENAI_COMPAT:
         return OpenAICompatBackend(provider, client=client)
-    raise ValueError(f"unknown WELLSPRING_PROVIDER {provider!r}; choose auto, ollama, openrouter, gemini or anthropic")
+    raise ValueError(f"unknown WELLSPRING_PROVIDER {provider!r}; choose ollama, openrouter, gemini or anthropic")
