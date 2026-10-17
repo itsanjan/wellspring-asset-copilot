@@ -20,6 +20,7 @@ notes, claims), 15 typed tools, a provider-neutral agent loop, an HTTP API and a
   the agent, but not the HTTP API, lets a second user continue another user's conversation).
 
 See [`docs/QA-VALIDATION-PLAN.md`](docs/QA-VALIDATION-PLAN.md) for the full, status-tracked list.
+**Latest test report (updated on every push to `main`): https://itsanjan.github.io/wellspring-asset-copilot/**
 
 ## Quick start
 
@@ -67,7 +68,9 @@ COPILOT_ADAPTER=tests.e2e.adapter:ask .venv/bin/python -m unittest tests.e2e.tes
 .venv/bin/python scripts/run_eval.py --only Q1,Q5      # quick Q1-Q10 check, writes var/eval-<provider>-<model>.json
 ```
 
-GitHub Actions runs the model-free tests on every push (Python 3.12 full, Python 3.9 data layer).
+GitHub Actions runs the model-free tests on every push (Python 3.12 full, Python 3.9 data layer) and publishes the
+results and the QA plan to GitHub Pages: [https://itsanjan.github.io/wellspring-asset-copilot/](https://itsanjan.github.io/wellspring-asset-copilot/). To build the same report locally:
+`.venv/bin/python scripts/test_report.py --out site`, then open `site/index.html`.
 
 ## Layout
 
@@ -77,12 +80,12 @@ GitHub Actions runs the model-free tests on every push (Python 3.12 full, Python
 | `CONCEPT.md` | Proposal and architecture |
 | `docs/FINAL-HOURS.md` | Runbook for loading the test dataset and answering the final questions |
 | `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
-| `docs/QA-VALIDATION-PLAN.md` | QA plan: scenarios, functional and non-functional checks, with status tracking |
+| `docs/QA-VALIDATION-PLAN.md` | QA plan: scenarios, functional and non-functional checks, with status tracking (also published on the test-report site) |
 | `tests/` | Unit, parity, tool, agent, backend, server, generalization and end-to-end tests (see Testing) |
 | `wellspring/` | Product code: loader, rule parser, SQLite schema and views, overlay, tools, agent, CLI chat, HTTP API |
 | `web/` | React chat UI (Vite + TypeScript, Recharts, Leaflet) |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
-| `scripts/` | `fetch_data.sh` (organizer dataset), `run_eval.py` (Q1-Q10 against a real model) |
+| `scripts/` | `fetch_data.sh` (organizer dataset), `run_eval.py` (Q1-Q10 against a real model), `test_report.py` (HTML test report for GitHub Pages) |
 | `data/` | Local dataset (git-ignored) |
 
 ## Data
