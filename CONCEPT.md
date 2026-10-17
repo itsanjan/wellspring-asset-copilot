@@ -139,17 +139,17 @@ user names a visual.
 | Store | SQLite or DuckDB, plus a local vector index | No infra; reloads fast |
 | LLM | Free by default: Gemma 4 12B on local Ollama (`gemma4:12b-32k`, a 32K-context tag of `gemma4:12b`). Pluggable (`wellspring/llm.py`): OpenRouter or Google AI Studio free tiers, or Claude Opus 5.5 only when `WELLSPRING_PROVIDER=anthropic` is set explicitly. No LLM at load time (report facts parse with regexes) | Zero cost, no rate limit, data stays local; every answer still reports tokens and cost |
 | UI | React chat with chart/map/table components | Generative UI inline |
-| Tests | Ground-truth scripts and a replay harness for Q1–Q18 | Proves correctness without the LLM |
+| Tests | Ground-truth scripts, product-vs-ground-truth parity, tool/agent/server tests with a scripted model, and a Q1–Q18 end-to-end scorer (see `docs/QA-VALIDATION-PLAN.md`) | Proves correctness without the LLM; the live model is scored separately |
 
 ## 5. Build steps
 
 1. **Data layer**: generic loader, derived views, ground-truth tests for Q1–Q8 _(ground truth for Q1–Q8 done)_.
 2. **Document layer**: chunk manuals/SOPs; parse repair reports into facts; ground truth for Q9–Q10.
-3. **Tools + agent loop**: typed tools, citations, answer composition, first end-to-end Q1.
-4. **Generative UI**: card, table, line, bar, map, heatmap; wire to the agent output.
-5. **Overlay + memory**: corrections, scoped rules, private memory, user picker (Q11–Q14).
-6. **Multi-user + conflicts**: shared notes, unconfirmed claims, disagreement display (Q15–Q18).
-7. **Generalization hardening**: re-run against a perturbed copy of the data and unseen question styles.
+3. **Tools + agent loop**: typed tools, citations, answer composition, first end-to-end Q1 _(built; Q1 passes on local Gemma 4)_.
+4. **Generative UI**: card, table, line, bar, map, heatmap; wire to the agent output _(built in `web/`)_.
+5. **Overlay + memory**: corrections, scoped rules, private memory, user picker (Q11–Q14) _(built; tool-level tests pass)_.
+6. **Multi-user + conflicts**: shared notes, unconfirmed claims, disagreement display (Q15–Q18) _(built; flags tested at tool level, live wording unverified)_.
+7. **Generalization hardening**: re-run against a perturbed copy of the data and unseen question styles _(synthetic perturbations pass; the organizers' test data is the real check)_.
 8. **Submission**: write-up (design, results), 5-minute video, public MIT repo.
 
 ## 6. Todos
@@ -165,14 +165,16 @@ user names a visual.
 - [x] Parse repair reports into structured facts (regex over the compliance table, 616/616 SR-02 rows); ground truth for Q10 matches (`ground_truth/reports.py`, `q10.py`)
 - [x] Ground truth for Q9 matches (`ground_truth/q9.py`, generic per well, runs across all 200 wells)
 - [x] Loader and derived views as product code (`wellspring/`): thresholds parsed from manuals, SQL views reproduce Q1-Q8, Q10 and Q11 costs
-- [ ] Draft tool schemas and agent prompt
-- [ ] Build the UI shell with user picker
+- [x] Tool schemas and agent prompt (`wellspring/tools.py`, `agent.py`, pluggable models in `llm.py`)
+- [x] UI shell with user picker (`web/`, served by `wellspring/server.py`)
 
 **Later**
 - [x] Overlay store and scoped feedback (`wellspring/overlay.py`): Q12, Q13, Q14 and the Q15 regulator check reproduce through the views
-- [ ] Conflict detector (Q15–Q18)
-- [ ] Perturbed-data test for generalization
-- [ ] Cost tracking per answer for the write-up
+- [x] Conflict flags for Q12, Q15–Q18 at tool level (`conflict`, `correction_applied`, `stale_status`, `report_outdated`); live-model wording not yet verified
+- [x] Perturbed-data generalization tests on synthetic data (`tests/test_generalization.py`); rerun on the organizers' test data (runbook in the QA plan, section 9)
+- [x] Cost and token tracking per answer (`usage` in every answer; zero for local models)
+- [ ] Live-model run of Q1–Q18 (local Gemma 4 first, then Claude); Q1 passes, about 4 minutes per answer on this machine, so speed needs a decision
+- [ ] Fix NULL temperature counted as downtime (`v_inspection`), and make the agent refuse another user's conversation ID
 - [ ] Write-up, video, public repo with license
 
 ## 7. Open questions

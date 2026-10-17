@@ -9,7 +9,17 @@ The LLM decides what to ask; deterministic tools decide what is true. See
 
 ## Status
 
-Early stage. The ground-truth script reproduces the expected answers for sample questions Q1-Q8.
+Working end to end: loader, SQLite store with derived views, a shared overlay (corrections, scoped rules,
+notes, claims), 15 typed tools, a provider-neutral agent loop, an HTTP API and a React chat UI.
+
+- **Verified without a model:** the tool layer reproduces the organizers' expected facts for Q1-Q18, and the
+  product agrees with an independent ground-truth implementation on all 200 wells (134 automated tests, run in CI).
+- **Not yet verified:** how real models answer. First live check on the default local model (Gemma 4 12B):
+  Q1 passed all 5 expected facts with the right visual, in about 4 minutes. Q2-Q18 are not scored yet.
+- **Known bugs:** two, both pinned by tests and listed in the QA plan (a NULL temperature counts as downtime;
+  the agent, but not the HTTP API, lets a second user continue another user's conversation).
+
+See [`docs/QA-VALIDATION-PLAN.md`](docs/QA-VALIDATION-PLAN.md) for the full, status-tracked list.
 
 ## Quick start
 
@@ -35,6 +45,30 @@ printf 'FROM gemma4:12b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile && ollama c
 # for UI development: run the server as above, then `cd web && npm run dev` (http://localhost:5173, proxies /api)
 ```
 
+## Testing
+
+```
+python3 -m unittest discover -s tests -t .      # everything below, under a minute; needs data/sample-data and .venv for the app tests
+WELLSPRING_DATA=data/test-data python3 -m unittest tests.test_parity -v   # cross-check the product against ground truth on another dataset
+```
+
+| Layer | Files | Needs a model |
+|---|---|---|
+| Rule parsing, ground-truth smoke, product-vs-ground-truth parity | `test_rules`, `test_ground_truth`, `test_parity` | no |
+| Tools (Q1-Q18 facts, corrections, scoped rules, claims, private memory) | `test_tools` | no |
+| Agent loop, model backends, HTTP API | `test_agent`, `test_llm`, `test_server` | no (scripted model) |
+| Generalization: changed manual, new well type, second dataset (synthetic) | `test_generalization`, `synth.py` | no |
+| End-to-end scorer and a scripted full-pipeline case | `tests/e2e/test_harness`, `test_pipeline` | no |
+| **Live end to end, Q1-Q18** | `tests/e2e/test_copilot` | **yes**, manual |
+
+```
+# Live end to end (free, local Gemma by default; add WELLSPRING_PROVIDER=anthropic and a key for Claude)
+COPILOT_ADAPTER=tests.e2e.adapter:ask .venv/bin/python -m unittest tests.e2e.test_copilot -v
+.venv/bin/python scripts/run_eval.py --only Q1,Q5      # quick Q1-Q10 check, writes var/eval-<provider>-<model>.json
+```
+
+GitHub Actions runs the model-free tests on every push (Python 3.12 full, Python 3.9 data layer).
+
 ## Layout
 
 | Path | What |
@@ -44,11 +78,11 @@ printf 'FROM gemma4:12b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile && ollama c
 | `docs/FINAL-HOURS.md` | Runbook for loading the test dataset and answering the final questions |
 | `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
 | `docs/QA-VALIDATION-PLAN.md` | QA plan: scenarios, functional and non-functional checks, with status tracking |
-| `tests/` | Unit, parity, and end-to-end tests (`python3 -m unittest discover -s tests -t .`) |
+| `tests/` | Unit, parity, tool, agent, backend, server, generalization and end-to-end tests (see Testing) |
 | `wellspring/` | Product code: loader, rule parser, SQLite schema and views, overlay, tools, agent, CLI chat, HTTP API |
 | `web/` | React chat UI (Vite + TypeScript, Recharts, Leaflet) |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
-| `scripts/` | Helper scripts (data fetch) |
+| `scripts/` | `fetch_data.sh` (organizer dataset), `run_eval.py` (Q1-Q10 against a real model) |
 | `data/` | Local dataset (git-ignored) |
 
 ## Data
