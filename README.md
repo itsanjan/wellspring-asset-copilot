@@ -26,6 +26,8 @@ python3 -m wellspring.loader --data data/sample-data --db var/wellspring.db   # 
 | `problem-statement/` | Organizer's challenge documents, copied as-is for reference |
 | `CONCEPT.md` | Proposal and architecture |
 | `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
+| `docs/QA-VALIDATION-PLAN.md` | QA plan: scenarios, functional and non-functional checks, with status tracking |
+| `tests/` | Unit, parity, and end-to-end tests (`python3 -m unittest discover -s tests -t .`) |
 | `wellspring/` | Product code: loader, rule parser, SQLite schema and derived views |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
 | `scripts/` | Helper scripts (data fetch) |
