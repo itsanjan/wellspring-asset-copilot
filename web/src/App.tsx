@@ -22,6 +22,7 @@ const FLAG_STYLE: Record<string, { label: string; icon: string; color: string }>
   report_outdated: { label: "Report outdated", icon: "!", color: "var(--serious)" },
   missing_rule: { label: "Missing rule", icon: "!", color: "var(--critical)" },
   containment_breach: { label: "Rule broken", icon: "!", color: "var(--critical)" },
+  status_changed: { label: "Changed", icon: "→", color: "var(--ink-2)" },
   correction_applied: { label: "Corrected", icon: "✎", color: "var(--ink-2)" },
   other_statement: { label: "Also on record", icon: "”", color: "var(--ink-2)" },
   data_note: { label: "Note", icon: "i", color: "var(--ink-2)" },

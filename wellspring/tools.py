@@ -172,8 +172,10 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
         if v["overlay_ids"]:
             row["raw_wellhead_temp_c"] = v["raw_wellhead_temp_c"]
             row["corrections_applied"] = [e for e in overlay.related_context(ctx.con, v["inspection_id"])["overlay"] if e["status"] == "active"]
+            who = "; ".join(f"{c['entry_id']} by {c['author_name']}: {c['field']} {c['original_value']} -> {c['new_value']} ({c['reason']})"
+                            for c in row["corrections_applied"])
             flags.append({"kind": "correction_applied", "refs": [v["inspection_id"], v["overlay_ids"]],
-                          "message": f"{v['asset_id']}: latest reading corrected ({v['overlay_ids']}); raw value {v['raw_wellhead_temp_c']} °C kept"})
+                          "message": f"{v['asset_id']}: latest reading corrected, {who}; original kept"})
             if v["notes"]:
                 flags.append({"kind": "conflict", "refs": [v["inspection_id"]],
                               "message": f"{v['asset_id']}: inspector remark '{v['notes']}' may disagree with the corrected value"})
@@ -593,7 +595,31 @@ def record_correction(ctx, inspection_id, field, new_value, reason):
     for x in others:
         flags.append({"kind": "conflict", "refs": [x["entry_id"]], "message": f"earlier correction {x['entry_id']} by {x['author_name']} set {field} to {x['new_value']} ({x['status']})"})
     after["spill_class"] = _spill_class(ctx, after["spill_est_volume_bbl"]) if after["real_spill"] else None
-    return _result([after], {"recorded": e, "asset_id": asset, "scope": "this inspection only, visible to every user"},
+    consequences = {}
+    if field in ("wellhead_temp_c", "ambient_temp_c"):
+        raw = _rows(ctx, "SELECT raw_wellhead_temp_c AS w, raw_ambient_temp_c AS a FROM v_inspection WHERE inspection_id = ?", (inspection_id,))[0]
+        before = None if after["threshold_c"] is None else int(round(raw["w"] - raw["a"], 1) >= after["threshold_c"])
+        word = {1: "producing", 0: "not producing", None: "unknown"}
+        consequences["status_before"], consequences["status_after"] = word[before], word[after["producing"]]
+        latest = _rows(ctx, "SELECT inspection_id FROM v_latest_inspection WHERE asset_id = ?", (asset,))[0]["inspection_id"]
+        consequences["is_latest_inspection"] = latest == inspection_id
+        if before != after["producing"]:
+            flags.append({"kind": "status_changed", "refs": [inspection_id],
+                          "message": f"{asset} on {after['day']}: was {word[before]}, now {word[after['producing']]} "
+                                     f"({after['delta_c']} °C above air vs limit {after['threshold_c']} °C)"})
+    if field in ("spill_est_volume_bbl", "spill_detected"):
+        old_class = _spill_class(ctx, float(e["original_value"])) if field == "spill_est_volume_bbl" and e["original_value"] else None
+        consequences["class_before"], consequences["class_after"] = old_class, after["spill_class"]
+        cc = compliance_check(ctx, asset_ids=[asset], start=after["day"], end=ctx.today.isoformat())
+        consequences["compliance"] = [b for b in cc["rows"] if b["ref"] == inspection_id] + \
+                                     [o for o in cc["summary"]["open_items"] if o["ref"] == inspection_id]
+        flags += [f for f in cc["flags"] if inspection_id in f["refs"]]
+        if old_class != after["spill_class"]:
+            flags.append({"kind": "status_changed", "refs": [inspection_id],
+                          "message": f"spill class changed from {old_class} to {after['spill_class']}: "
+                                     + "; ".join(f"{c['protocol']}: {c['detail']}" for c in consequences["compliance"])})
+    return _result([after], {"recorded": e, "asset_id": asset, "scope": "this inspection only, visible to every user",
+                             "consequences": consequences},
                    [{"kind": "overlay", "ref": e["entry_id"], "detail": f"{field}: {e['original_value']} -> {e['new_value']} by {e['author_name']}: {reason}", "source": "overlay"}],
                    flags=flags)
 
