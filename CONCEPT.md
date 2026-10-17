@@ -163,7 +163,7 @@ user names a visual.
 - [x] Stack signed off: Python + React; mixed-model approach; new public repo (itsanjan/wellspring-asset-copilot)
 - [ ] Profile remaining data quirks: nulls, missed inspections, drilled-later wells (report filename variants handled by following `report_file`)
 - [x] Parse repair reports into structured facts (regex over the compliance table, 616/616 SR-02 rows); ground truth for Q10 matches (`ground_truth/reports.py`, `q10.py`)
-- [ ] Ground truth for Q9 (needs regulator events, RCA counts, open actions)
+- [x] Ground truth for Q9 matches (`ground_truth/q9.py`, generic per well, runs across all 200 wells)
 - [ ] Write the loader and derived views as the product code, not just the ground-truth script
 - [ ] Draft tool schemas and agent prompt
 - [ ] Build the UI shell with user picker
