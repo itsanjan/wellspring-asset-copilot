@@ -229,6 +229,9 @@ class Copilot:
         usage["provider"] = self.backend.provider
         # Result IDs (R1, R2...) are internal handles for choosing visuals, not citations; drop any that leak into prose.
         text = re.sub(r"\s*\((?:R\d+(?:,\s*)?)+\)", "", final.get("answer", ""))
+        # Tool names are not sources either: "(data_coverage)" -> "", "the production_proxy tool" stays readable.
+        names = "|".join(map(re.escape, tools.TOOLS))
+        text = re.sub(rf"\s*\((?:{names})(?:,\s*(?:{names}))*\)", "", text)
         return {"text": text, "visual": visual, "evidence": evidence, "flags": flags,
                 "tools_used": [{"id": k, "tool": v["tool"], "input": v["input"]} for k, v in results.items()], "usage": usage}
 

@@ -235,7 +235,10 @@ def status_conflicts(ctx, area_id=None, asset_ids=None):
         if "unconfirmed" in r["status_now"]:
             flags.append({"kind": "unconfirmed", "refs": [r["note_id"]], "message": f"{r['asset_id']}: restart reported by {r['note_by']} but not yet confirmed by an inspection"})
     cols = ["asset_id", "area", "inspection_id", "inspected_at", "inspection_shows", "note_at", "note_says", "status_now"]
-    return _result(rows, {"conflicts": len(rows), "wells_checked": len(latest)}, evidence, {"table": _table(rows, cols)}, flags)
+    return _result(rows, {"conflicts": len(rows), "wells_checked": len(latest),
+                          "not_counted": "drive-trip resets ('restarted from the panel') on a running ESP are equipment remarks, not a restart of a "
+                                         "shut-in well (OPS-3); notes older than the last two inspections are already superseded"},
+                   evidence, {"table": _table(rows, cols)}, flags)
 
 
 # --- Q7: operator-reported symptoms -----------------------------------------------------------------
@@ -272,9 +275,9 @@ def operator_concerns(ctx, days=30, top_n=10, area_id=None):
     for well, ns in by_well.items():
         first = ns[0]["created_at"]
         eq = sorted({n["equipment_kind"] for n in ns})
+        # Any maintenance job after the first symptom note counts as a repair (every maintenance record is a repair).
         fix = _rows(ctx, "SELECT maintenance_id, started_at, issue, equipment_kind FROM maintenance WHERE asset_id = ? AND started_at >= ? "
-                         f"AND issue NOT LIKE '%spill%' AND (maintenance_type = 'corrective' OR equipment_kind IN ({','.join('?' * len(eq))})) "
-                         "ORDER BY started_at LIMIT 1", [well, first] + eq)
+                         "ORDER BY started_at LIMIT 1", (well, first))
         if not fix:  # a repair already under way on the same equipment counts too
             fix = _rows(ctx, f"SELECT maintenance_id, started_at, issue, equipment_kind FROM maintenance WHERE asset_id = ? AND started_at < ? "
                              f"AND completed_at > ? AND issue NOT LIKE '%spill%' AND equipment_kind IN ({','.join('?' * len(eq))})",
@@ -332,7 +335,7 @@ def operator_concerns(ctx, days=30, top_n=10, area_id=None):
     summary = {"since": since, "wells_with_symptom_notes": len(by_well), "already_repaired_since": repaired,
                "not_repaired": len(rows), "ranking_method": "points: each symptom note, extra distinct symptoms, a note in the last 7 days, "
                "a leak (+3), corrective repairs on the same equipment in 12 months (up to +3), T500 early warning (+3), recalled pump in the well (+2), "
-               "not producing now (+1). Wells with a repair since the note, or one under way on that equipment, are excluded"}
+               "not producing now (+1). Wells with any maintenance job since the first note, or a repair under way on that equipment, are excluded"}
     return _result(top, summary, evidence, {"table": _table(top, cols)})
 
 
@@ -715,15 +718,16 @@ def data_coverage(ctx):
 
 def production_proxy(ctx, start=None, end=None, top_n=10, area_id=None):
     """No oil volumes are recorded, so this ranks wells by the evidence that IS recorded for a period: share of
-    inspections producing, producing days (7 per producing weekly inspection) and average wellhead-above-air
+    inspections producing, producing days (7 per producing weekly inspection, capped at the period length) and average wellhead-above-air
     difference. It shows which wells flowed most consistently, not which produced the most barrels."""
     s, e = _window(ctx, start, end, default_days=365)
     where, params = _well_filter(ctx, None, area_id, alias="v")
     rows = _rows(ctx, f"""SELECT v.asset_id, v.well_type, v.area_id, COUNT(*) readings, SUM(v.producing) producing_readings,
-                                 ROUND(100.0 * SUM(v.producing) / COUNT(*), 1) producing_pct, 7 * SUM(v.producing) producing_days,
+                                 ROUND(100.0 * SUM(v.producing) / COUNT(*), 1) producing_pct, MIN(7 * SUM(v.producing), CAST(JULIANDAY(MIN(?, ?)) - JULIANDAY(?) + 1 AS INTEGER)) producing_days,
                                  ROUND(AVG(CASE WHEN v.producing = 1 THEN v.delta_c END), 1) avg_above_air_when_producing
                           FROM v_inspection v WHERE v.day BETWEEN ? AND ? {where} GROUP BY v.asset_id
-                          ORDER BY producing_pct DESC, producing_days DESC, avg_above_air_when_producing DESC""", [s, e] + params)
+                          ORDER BY producing_pct DESC, producing_days DESC, avg_above_air_when_producing DESC""",
+                 [e, ctx.today.isoformat(), s, s, e] + params)
     top = rows[: int(top_n)]
     full = sum(1 for r in rows if r["producing_pct"] == 100)
     cols = ["asset_id", "well_type", "area_id", "producing_pct", "producing_days", "avg_above_air_when_producing"]
