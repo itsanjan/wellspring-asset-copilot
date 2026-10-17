@@ -115,9 +115,7 @@ class MessyInputTest(unittest.TestCase):
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM inspections WHERE asset_id='WELL-0201'").fetchone()[0], 3)
         self.assertEqual(self.con.execute("SELECT COUNT(*) FROM maintenance WHERE asset_id='WELL-0201'").fetchone()[0], 0)
 
-    # Known gap: v_inspection turns a NULL temperature into producing = 0, i.e. 7 days of downtime.
-    # Fix in schema.sql: add "WHEN i.wellhead_temp_c IS NULL OR i.ambient_temp_c IS NULL THEN NULL" to the CASE.
-    @unittest.expectedFailure
+    # A NULL temperature is unknown, not "not producing" (which would add 7 days of downtime).
     def test_null_reading_is_unknown_not_downtime(self):
         producing = self.con.execute("SELECT producing FROM v_inspection WHERE inspection_id='INS-0201-0002'").fetchone()[0]
         self.assertIsNone(producing)

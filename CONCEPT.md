@@ -174,7 +174,8 @@ user names a visual.
 - [x] Perturbed-data generalization tests on synthetic data (`tests/test_generalization.py`); rerun on the organizers' test data (runbook in the QA plan, section 9)
 - [x] Cost and token tracking per answer (`usage` in every answer; zero for local models)
 - [ ] Live-model run of Q1–Q18 (local Gemma 4 first, then Claude); Q1 passes, about 4 minutes per answer on this machine, so speed needs a decision
-- [ ] Fix NULL temperature counted as downtime (`v_inspection`), and make the agent refuse another user's conversation ID
+- [x] Fix NULL temperature counted as downtime (`v_inspection`)
+- [ ] Make the agent refuse another user's conversation ID
 - [ ] Write-up, video, public repo with license
 
 ## 7. Open questions

@@ -4,7 +4,7 @@ Scope: Wellspring, the asset-intelligence copilot for the FlytBase Hack Day chal
 This is the single place that says **what must be true, how we prove it, and whether it is proven yet**.
 
 - Last updated: 2026-10-17
-- Suite at last run (Python 3.12, app dependencies installed): **136 tests: 132 pass, 2 skipped, 2 expected failures.** The 2 skipped are the live-model e2e tests (slow; billed with Claude, free with local Ollama; run by hand). The 2 expected failures are known bugs, see section 7. On Python 3.9 without the app dependencies, the app tests skip and 81 run.
+- Suite at last run (Python 3.12, app dependencies installed): **136 tests: 133 pass, 2 skipped, 1 expected failure.** The 2 skipped are the live-model e2e tests (slow; billed with Claude, free with local Ollama; run by hand). The expected failure is a known bug, see section 7. On Python 3.9 without the app dependencies, the app tests skip and 81 run.
 - Source of truth for expected answers: [`problem-statement/03-evaluation-queries.md`](../problem-statement/03-evaluation-queries.md)
 
 ## How to read status
@@ -190,7 +190,7 @@ The problem statement warns that a system tuned to the sample questions breaks. 
 
 1. **The live-model run has not been done.** Tools, agent, backends, server and the harness are tested without a model; whether a real model (default: local Gemma 4 on Ollama) words, cites and picks visuals correctly for Q1-Q18 is unproven, and small local models are the main risk. Run it by hand (section 1, L5): free Gemma first for a baseline, then Claude for the final numbers. `scripts/run_eval.py` gives a quick Q1-Q10 read; the e2e package scores all 18 including memory and multi-user.
 2. **Privacy gap at agent level.** `Copilot._states` is keyed by conversation ID alone. Within one process, a second user who supplies the first user's conversation ID is handed that user's in-memory history, and their turns are stored under the first user's conversation. The HTTP API blocks this (404, tested), so it is reachable only through the CLI or direct use of `Copilot`. Pinned as an expected failure in `test_agent.py`. Fix: key the cache by (user, conversation) and reject a conversation owned by someone else.
-3. **Bug: a NULL wellhead or ambient temperature is counted as not producing, i.e. 7 days of downtime** (`v_inspection` CASE falls through to ELSE 0). The sample data has no null temperatures, so no current answer is wrong, but it contradicts the design rule "unknown, never guessed". Fix: add `WHEN i.wellhead_temp_c IS NULL OR i.ambient_temp_c IS NULL THEN NULL` to the CASE in `wellspring/schema.sql`, then remove `@expectedFailure` from `test_null_reading_is_unknown_not_downtime`.
+3. ~~NULL temperature counted as downtime~~ **Fixed 2026-10-17** (`v_inspection` now yields NULL; test enabled).
 4. **Generalization is proven on synthetic data only.** The real test is the organizers' dataset (section 9). The reference `ground_truth` hard-codes T200/T350 thresholds, so a new well type in their data makes the parity suite skip with a message, and a changed manual makes the producing and downtime parity tests fail until the reference is told the new rule by hand.
 5. **CLI error handling.** A wrong or missing key (with Claude selected), Ollama not running, a missing or wrong `--db`, an unknown user and an empty question all end in raw Python tracebacks, and a bad `--db` path leaves an empty SQLite file behind. Not covered by tests. (The HTTP API handles the equivalent cases with clear 503, 404 and 422 responses, tested.)
 6. **Q9 on every well** is not compared with `ground_truth/q9.py`, and the hard-coded `TODAY` in the ground truth (E-03) is untested.
@@ -205,6 +205,7 @@ The problem statement warns that a system tuned to the sample questions breaks. 
 | 2026-10-17 | Added tool-layer (25), agent-loop (13), HTTP API (11) and scripted-pipeline (4) tests, an in-process e2e adapter and the real `POST /api/ask` transport. 109 tests. Found an agent-level conversation leak (section 7) and the CLI error-handling gaps. CI installs app dependencies on 3.12. |
 | 2026-10-17 | Added generalization tests (12) on synthetic and perturbed data; parity suite can target any dataset via `WELLSPRING_DATA`; found NULL-temperature bug (section 7). 56 tests. |
 | 2026-10-17 | Plan created. 44 tests: unit (14), smoke (4), parity/integration (17), e2e harness (7), live e2e (2, skipped). Parity found no discrepancies between product views and ground truth. |
+| 2026-10-17 | Organizers' test data (600 wells, today = 15 Jan 2027) loaded with no warnings. Reference given the T500 threshold (25 °C, OM-T500 section 3); parity passes on all 600 wells. The product does not yet handle the new data features (operator notes, MOC memos, recall notice, regulator letter, plugged wells, late entries, cost revisions, `Parts installed`, `Follow-up`). The 11 final questions are in `tests/e2e/final_cases.py` (wording-checked, no expected answers yet). 136 tests. Batch 1 of the product work (60fd6ed) loads the new features; the reference now honours type_history and data_correction notes, parity passes on all 600 wells. NULL-temperature bug fixed. |
 
 ## 9. When the organizers' test data arrives (runbook)
 
@@ -219,5 +220,3 @@ Expected in the last two hours, same format as the sample. Until then, the synth
 4. **Sample answers still hold** when both datasets are loaded together: `python3 -W ignore -m unittest tests.test_generalization tests.test_parity`.
 5. **Live app:** run the final questions through the copilot, record answers for page 2 of the write-up. Add the new questions to `tests/e2e/cases.py` as soon as their expected answers are known, so they become regression tests.
 6. Update the statuses in this file and the change log.
-
-| 2026-10-17 | Organizers' test data (600 wells, today = 15 Jan 2027) loaded with no warnings. Reference given the T500 threshold (25 °C, OM-T500 section 3); parity passes on all 600 wells. The product does not yet handle the new data features (operator notes, MOC memos, recall notice, regulator letter, plugged wells, late entries, cost revisions, `Parts installed`, `Follow-up`). The 11 final questions are in `tests/e2e/final_cases.py` (wording-checked, no expected answers yet). 136 tests. |

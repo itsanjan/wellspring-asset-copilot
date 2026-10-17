@@ -33,6 +33,12 @@ def load():
         meta = json.load(open(f"{d}/metadata.json"))
         w = dict(meta)
         w["inspections"] = sorted(jl(f"{d}/inspections.jsonl"), key=lambda r: r["inspected_at"])
+        # data_correction notes (test data) replace one field of one inspection
+        fixes = [n for n in jl(f"{d}/context.jsonl") if n.get("note_type") == "data_correction"]
+        for ins in w["inspections"]:
+            for n in fixes:
+                if n["inspection_id"] == ins["inspection_id"]:
+                    ins[n["field"]] = n["corrected_value"]
         w["maintenance"] = jl(f"{d}/maintenance.jsonl")
         w["regulatory"] = jl(f"{d}/regulatory-events.jsonl")
         w["context"] = jl(f"{d}/context.jsonl")
@@ -49,8 +55,17 @@ def delta(w, ins):
     return round(ins["wellhead_temp_c"] - ins["ambient_temp_c"], 1)
 
 
+def type_on(w, ins):
+    """The well's type on the day of the reading (type_history), else its current type."""
+    d = day(ins).isoformat()
+    for h in w.get("type_history") or []:
+        if h["from"] <= d and (not h.get("to") or d <= h["to"]):
+            return h["well_type"]
+    return w["well_type"]
+
+
 def producing(w, ins):
-    return delta(w, ins) >= THRESHOLD[w["well_type"]]
+    return delta(w, ins) >= THRESHOLD[type_on(w, ins)]
 
 
 def real_spills(w, start, end):

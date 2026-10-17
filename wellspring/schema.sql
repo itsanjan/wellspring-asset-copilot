@@ -187,7 +187,7 @@ WITH base AS (
 SELECT b.*, w.area_id, w.lat, w.lon,
        rp.value AS threshold_c,
        ROUND(b.wellhead_temp_c - b.ambient_temp_c, 1) AS delta_c,
-       CASE WHEN rp.value IS NULL THEN NULL
+       CASE WHEN rp.value IS NULL OR b.wellhead_temp_c IS NULL OR b.ambient_temp_c IS NULL THEN NULL
             WHEN ROUND(b.wellhead_temp_c - b.ambient_temp_c, 1) >= rp.value THEN 1 ELSE 0 END AS producing,
        EXISTS (SELECT 1 FROM notes n WHERE n.note_type = 'correction' AND n.inspection_id = b.inspection_id) AS is_corrected,
        CASE WHEN b.spill_detected = 1 AND NOT EXISTS
