@@ -42,7 +42,7 @@ CREATE INDEX ix_notes_ins ON notes (inspection_id);
 
 -- Facts extracted from the structured compliance table of repair reports.
 CREATE TABLE report_facts (
-    maintenance_id TEXT, asset_id TEXT, inspection_id TEXT, protocol TEXT, result TEXT,
+    maintenance_id TEXT, asset_id TEXT, inspection_id TEXT, protocol TEXT, result TEXT, detail TEXT,
     contained_hours REAL, limit_hours REAL, report_path TEXT,
     UNIQUE (maintenance_id, protocol)
 );
@@ -58,6 +58,17 @@ CREATE TABLE doc_chunks (
     UNIQUE (doc_kind, doc_id, path, section, heading)
 );
 CREATE INDEX ix_chunks_doc ON doc_chunks (doc_id);
+CREATE VIRTUAL TABLE doc_fts USING fts5(heading, text, content='doc_chunks', content_rowid='chunk_id');
+
+-- L4 private memory: each user's own conversations. Only ever queried with that user's ID.
+CREATE TABLE conversations (
+    conversation_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, started_at TEXT NOT NULL, title TEXT
+);
+CREATE TABLE turns (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT, conversation_id TEXT NOT NULL, user_id TEXT NOT NULL,
+    role TEXT NOT NULL, text TEXT, asset_ids TEXT, created_at TEXT NOT NULL
+);
+CREATE INDEX ix_turns_user ON turns (user_id, created_at);
 
 -- L3 overlay: user-supplied corrections, rules, notes and claims. Append-only: an entry is
 -- never edited or deleted, only superseded. It survives dataset reloads (see loader.PRESERVE).

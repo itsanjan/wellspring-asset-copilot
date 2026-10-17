@@ -19,7 +19,7 @@ from . import reports, rules
 
 SCHEMA = os.path.join(os.path.dirname(__file__), "schema.sql")
 # User state that must survive a dataset reload (data tables are rebuilt from scratch).
-PRESERVE = ("overlay_entries",)
+PRESERVE = ("overlay_entries", "conversations", "turns")
 
 
 def jl(path):
@@ -68,6 +68,8 @@ def load_fleet(con, root, stats):
     for t, params in rules.parse_all(fleet).items():
         for name, (value, source) in params.items():
             insert(con, "rule_params", {"well_type": t, "name": name, "value": value, "source": source})
+    for name, (value, source) in rules.parse_sops(fleet).items():
+        insert(con, "rule_params", {"well_type": "*", "name": name, "value": value, "source": source})
     for md in sorted(glob.glob(f"{fleet}/well-types/*.md") + glob.glob(f"{fleet}/sops/*.md")):
         text = open(md).read()
         m = re.search(r"Document ID:\s*(\S+)", text)
@@ -134,7 +136,7 @@ def load_well(con, root, well_dir, stats):
             sr02 = proto == "SR-02"
             insert(con, "report_facts", {
                 "maintenance_id": mid, "asset_id": wid, "inspection_id": f["inspection_id"], "protocol": proto,
-                "result": result, "contained_hours": f.get("contained_hours") if sr02 else None,
+                "result": result, "detail": f["details"].get(proto), "contained_hours": f.get("contained_hours") if sr02 else None,
                 "limit_hours": f.get("containment_limit_hours") if sr02 else None,
                 "report_path": os.path.relpath(f["path"], root)})
         add_doc(con, "report", mid, os.path.relpath(f["path"], root), open(f["path"]).read(), asset_id=wid)
@@ -173,6 +175,7 @@ def load(data_dirs, db_path):
         wells = sorted(glob.glob(f"{root}/assets/WELL-*"))
         for well_dir in wells:
             load_well(con, root, well_dir, stats)
+    con.execute("INSERT INTO doc_fts(doc_fts) VALUES ('rebuild')")
     con.commit()
     problems = check(con)
     stats = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in
@@ -192,6 +195,9 @@ def check(con):
                     "(SELECT maintenance_id FROM report_facts)").fetchone()[0]
     if n:
         problems.append(f"{n} maintenance records point at a report file that was not found or had no compliance table")
+    have = {r[0] for r in con.execute("SELECT name FROM rule_params WHERE well_type = '*'")}
+    for name in sorted(set(rules.SOP_PATTERNS) - have):
+        problems.append(f"SOP rule {name} not found in the SOPs; answers that need it will say so")
     n = con.execute("SELECT COUNT(*) FROM inspections WHERE asset_id NOT IN (SELECT asset_id FROM wells)").fetchone()[0]
     if n:
         problems.append(f"{n} inspections reference unknown wells")

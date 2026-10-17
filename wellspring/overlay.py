@@ -144,8 +144,9 @@ def related_context(con, inspection_id):
     ins = con.execute("SELECT i.inspection_id, i.notes AS inspector_note, i.inspector_user_id, u.name AS inspector_name "
                       "FROM inspections i LEFT JOIN users u ON u.user_id = i.inspector_user_id "
                       "WHERE i.inspection_id = ?", (inspection_id,)).fetchone()
+    # Notes link to an inspection either by field (formal corrections) or by naming it in the text.
     notes = con.execute("SELECT n.*, u.name AS author_name FROM notes n LEFT JOIN users u ON u.user_id = n.author_user_id "
-                        "WHERE n.inspection_id = ?", (inspection_id,)).fetchall()
+                        "WHERE n.inspection_id = ? OR n.text LIKE '%' || ? || '%'", (inspection_id, inspection_id)).fetchall()
     entries = con.execute("SELECT o.*, 'OVL-' || o.seq AS entry_id, u.name AS author_name FROM overlay_entries o "
                           "LEFT JOIN users u ON u.user_id = o.author_user_id "
                           "WHERE o.target_type = 'inspection' AND o.target_ref = ? ORDER BY o.seq",

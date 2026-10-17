@@ -65,3 +65,33 @@ def parse_all(fleet_dir):
             if name not in params and name in base:
                 params[name] = (base[name][0], base[name][1] + f" (inherited by {t})")
     return types
+
+
+# Fleet-wide rules from the SOPs. Stored with well_type '*'. Each pattern names the protocol it reads.
+SOP_PATTERNS = {
+    "spill_moderate_bbl": (r"\|\s*Moderate\s*\|\s*([\d.]+)\s*bbl", "SOP-SR section 3"),
+    "spill_reportable_bbl": (r"\|\s*Reportable\s*\|\s*([\d.]+)\s*bbl", "SOP-SR section 3"),
+    "spill_major_bbl": (r"\|\s*Major\s*\|\s*([\d.]+)\s*bbl", "SOP-SR section 3"),
+    "sr01_report_hours": (r"\*\*SR-01\*\*.*?within\s+\*\*(\d+)\s*hours\*\*\s+of discovery", "SOP-SR SR-01"),
+    "sr01_major_report_hours": (r"\*\*SR-01\*\*.*?or within\s+\*\*(\d+)\s*hours\*\*\s+for a major", "SOP-SR SR-01"),
+    "sr02_contain_hours": (r"\*\*SR-02\*\*.*?within\s+\*\*(\d+)\s*hours\*\*", "SOP-SR SR-02"),
+    "sr03_verify_days": (r"\*\*SR-03\*\*.*?verified within\s+(\d+)\s*days", "SOP-SR SR-03"),
+    "rc01_inspection_days": (r"\*\*RC-01\*\*.*?every\s+\*\*(\d+)\s*days\*\*", "SOP-RC RC-01"),
+    "rc03_downtime_days": (r"\*\*RC-03\*\*.*?more than\s+\*\*(\d+)\s*consecutive days\*\*", "SOP-RC RC-03"),
+    "rc04_response_days": (r"\*\*RC-04\*\*.*?within\s+\*\*(\d+)\s*days\*\*", "SOP-RC RC-04"),
+}
+
+
+def parse_sops(fleet_dir):
+    """{name: (value, source)} for fleet-wide thresholds and deadlines. Missing ones are simply absent;
+    the loader reports them so nothing is silently defaulted."""
+    text = ""
+    for path in sorted(glob.glob(os.path.join(fleet_dir, "sops", "*.md"))):
+        with open(path) as f:
+            text += f.read() + "\n"
+    out = {}
+    for name, (pattern, source) in SOP_PATTERNS.items():
+        m = re.search(pattern, text, re.S)
+        if m:
+            out[name] = (float(m.group(1)), source)
+    return out

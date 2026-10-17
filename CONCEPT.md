@@ -137,7 +137,7 @@ user names a visual.
 |---|---|---|
 | Backend | Python, FastAPI | Fast to build; strong data tooling |
 | Store | SQLite or DuckDB, plus a local vector index | No infra; reloads fast |
-| LLM | Mixed: strong hosted model for planning and composing answers, cheap model where an LLM is needed at load time; model is a config setting; Gemma 4 (AI Studio/OpenRouter/Ollama) as the free fallback | Cost per answer is part of the write-up |
+| LLM | Claude Opus 5.5 (`claude-opus-5-5`, effort `medium`) drives the agent; server-side refusal fallback on. No LLM at load time (report facts parse with regexes). `WELLSPRING_MODEL` / `WELLSPRING_EFFORT` switch model, e.g. Sonnet 5.5 for lower cost | Every answer reports tokens and USD cost |
 | UI | React chat with chart/map/table components | Generative UI inline |
 | Tests | Ground-truth scripts and a replay harness for Q1–Q18 | Proves correctness without the LLM |
 
@@ -177,7 +177,7 @@ user names a visual.
 
 ## 7. Open questions
 
-1. Which strong model drives the interactive agent, and what is the budget? (Mixed approach agreed; the specific model and spend are not.)
+1. Budget for model calls during build and the final run (each answer reports its cost).
 2. Anything in the time-sensitive final two hours (loading the test dataset) we should
    automate now, such as a single `make load DATA=...` command?
 

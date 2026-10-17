@@ -15,7 +15,7 @@ TRIGGER = re.compile(r"\*\*Triggered by:\*\*\s*inspection (INS-\d+-\d+)")
 def parse_report(path):
     text = open(path).read()
     rows = {m["proto"]: (m["result"].replace("*", "").strip(), m["detail"]) for m in ROW.finditer(text)}
-    facts = {"checks": {p: r for p, (r, _) in rows.items()}, "path": path}
+    facts = {"checks": {p: r for p, (r, _) in rows.items()}, "details": {p: d for p, (_, d) in rows.items()}, "path": path}
     t = TRIGGER.search(text)
     facts["inspection_id"] = t.group(1) if t else None
     sr02 = rows.get("SR-02")

@@ -17,6 +17,9 @@ Early stage. The ground-truth script reproduces the expected answers for sample 
 scripts/fetch_data.sh          # downloads the organizer's sample dataset into data/
 python3 -I ground_truth/ground_truth.py    # recomputes Q1-Q8 straight from the raw files
 python3 -m wellspring.loader --data data/sample-data --db var/wellspring.db   # build the SQLite store (about 1 s)
+uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
+export ANTHROPIC_API_KEY=...   # the copilot uses Claude Opus 5.5 by default
+.venv/bin/python -m wellspring.chat --user U-201 "Is WELL-0001 producing oil right now? Show me its status card." 
 ```
 
 ## Layout
@@ -28,7 +31,7 @@ python3 -m wellspring.loader --data data/sample-data --db var/wellspring.db   # 
 | `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
 | `docs/QA-VALIDATION-PLAN.md` | QA plan: scenarios, functional and non-functional checks, with status tracking |
 | `tests/` | Unit, parity, and end-to-end tests (`python3 -m unittest discover -s tests -t .`) |
-| `wellspring/` | Product code: loader, rule parser, SQLite schema and derived views |
+| `wellspring/` | Product code: loader, rule parser, SQLite schema and views, overlay, tools, agent, CLI chat |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
 | `scripts/` | Helper scripts (data fetch) |
 | `data/` | Local dataset (git-ignored) |
