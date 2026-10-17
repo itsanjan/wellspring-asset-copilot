@@ -36,14 +36,15 @@ export default function App() {
   const [shared, setShared] = useState<FeedbackEntry[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [creds, setCreds] = useState(true);
+  const [model, setModel] = useState<{ ready: boolean; detail: string; name: string }>({ ready: true, detail: "", name: "" });
   const [menu, setMenu] = useState(false);
   const [theme, setTheme] = useState<"system" | "light" | "dark">("system");
   const end = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     api.users().then(setUsers);
-    api.health().then((h) => setCreds(h.model_credentials)).catch(() => setCreds(false));
+    api.health().then((h) => setModel({ ready: h.model_ready, detail: h.model_detail, name: h.provider ? `${h.provider} · ${h.model}` : "" }))
+      .catch((e) => setModel({ ready: false, detail: String(e), name: "" }));
     api.feedback().then(setShared);
   }, []);
   useEffect(() => { api.conversations(userId).then(setConvs); newChat(); }, [userId]);
@@ -88,6 +89,7 @@ export default function App() {
         <button className="ghost menu-btn" onClick={() => setMenu(!menu)} aria-label="Menu">☰</button>
         <div className="brand">Wellspring<small>Asset Intelligence Copilot</small></div>
         <div className="spacer" />
+        {model.name && <span className="empty" title="Model in use">{model.name}</span>}
         <label className="picker">
           <span>User</span>
           <select value={userId} onChange={(e) => setUserId(e.target.value)}>
@@ -97,7 +99,7 @@ export default function App() {
         <button className="ghost" onClick={() => setTheme(theme === "system" ? "dark" : theme === "dark" ? "light" : "system")}
           title="Theme">{theme === "system" ? "Auto" : theme === "dark" ? "Dark" : "Light"}</button>
       </header>
-      {creds ? <div /> : <div className="banner">The server has no model credentials, so questions will fail. Set <code>ANTHROPIC_API_KEY</code> and restart it. History and shared knowledge still load.</div>}
+      {model.ready ? <div /> : <div className="banner">The model is not available ({model.detail}), so questions will fail. History and shared knowledge still load.</div>}
 
       <aside className={`sidebar${menu ? " open" : ""}`}>
         <button className="primary" onClick={newChat}>New chat</button>
@@ -193,7 +195,7 @@ function BotMessage({ turn }: { turn: Turn }) {
       {a?.usage && (
         <div className="meta">
           {a.tools_used.map((t) => t.tool).join(" → ") || "no tools"} · {a.usage.model} · {a.usage.model_calls} model calls ·
-          {" "}{(a.usage.input_tokens + a.usage.cache_read_tokens).toLocaleString()} in / {a.usage.output_tokens.toLocaleString()} out · ${a.usage.cost_usd.toFixed(4)}
+          {" "}{(a.usage.input_tokens + a.usage.cache_read_tokens).toLocaleString()} in / {a.usage.output_tokens.toLocaleString()} out · {a.usage.cost_usd ? `$${a.usage.cost_usd.toFixed(4)}` : "free"}
         </div>
       )}
     </div>

@@ -3,7 +3,8 @@
     .venv/bin/python -m wellspring.chat --user U-201 "Is WELL-0001 producing oil right now?"
     .venv/bin/python -m wellspring.chat --user U-201 --conversation conv-abc "and why?"
 
-Needs ANTHROPIC_API_KEY (or an `ant auth login` profile). WELLSPRING_MODEL / WELLSPRING_EFFORT override the model.
+Uses local Ollama (free) unless ANTHROPIC_API_KEY is set; WELLSPRING_PROVIDER / WELLSPRING_MODEL choose
+explicitly (see wellspring/llm.py).
 """
 from __future__ import annotations
 
@@ -33,7 +34,7 @@ def main(argv=None):
         print(f"[{f['kind']}] {f['message']}")
     print(f"[evidence: {len(a['evidence'])} items] [tools: {', '.join(t['tool'] for t in a['tools_used'])}]")
     u = a["usage"]
-    print(f"[{u['model']}: {u['model_calls']} calls, {u['input_tokens']}+{u['cache_read_tokens']} cached in, {u['output_tokens']} out, ${u['cost_usd']}]")
+    print(f"[{u['provider']} {u['model']}: {u['model_calls']} calls, {u['input_tokens']}+{u['cache_read_tokens']} cached in, {u['output_tokens']} out, ${u['cost_usd']}]")
     print(f"[conversation: {a['conversation_id']}]")
     return 0
 

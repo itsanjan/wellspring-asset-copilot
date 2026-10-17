@@ -1,4 +1,5 @@
-"""The copilot: a tool-use loop over Claude. The model plans and writes; tools supply every fact.
+"""The copilot: a tool-use loop over a language model. The model plans and writes; tools supply every fact.
+The model provider is pluggable (see llm.py): local Ollama for free, or Claude, OpenRouter, Google AI Studio.
 
 One call to `Copilot.ask(user_id, question, conversation_id)` returns an Answer dict:
   text      markdown answer
@@ -16,17 +17,15 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 
-import anthropic
-
-from . import tools
+from . import llm, tools
 from .overlay import OverlayError
 
-MODEL = os.environ.get("WELLSPRING_MODEL", "claude-opus-5-5")
-EFFORT = os.environ.get("WELLSPRING_EFFORT", "medium")
 MAX_STEPS = 12
-# USD per million tokens: input, output, cache write (5 min), cache read.
-PRICES = {"claude-opus-5-5": (4.0, 20.0, 5.0, 0.20), "claude-sonnet-5-5": (2.0, 10.0, 2.5, 0.20),
-          "claude-haiku-5-5": (0.10, 0.50, 0.125, 0.01)}
+COMPACT_ROWS = 40  # rows a small model sees per tool result; totals stay in the summary
+# Words in the question that name a visual, used when the model answers without choosing one.
+VISUAL_WORDS = [("heatmap", "heatmap"), ("heat map", "heatmap"), ("status card", "card"), ("card", "card"),
+                ("line chart", "line"), ("over time", "line"), ("bar chart", "bar"), ("bar", "bar"),
+                ("map", "map"), ("table", "table")]
 
 PRESENT = {
     "name": "present_answer",
@@ -85,92 +84,104 @@ def directory(con):
 
 
 class Copilot:
-    def __init__(self, db_path, model=MODEL, effort=EFFORT, client=None):
+    def __init__(self, db_path, backend=None, client=None):
+        """client: an Anthropic-style client (used by tests to script the model)."""
         self.db_path = db_path
-        self.model, self.effort = model, effort
-        self.client = client or anthropic.Anthropic()
-        self._histories = {}  # conversation_id -> full message list (kept append-only within a process)
-
-    def _con(self):
-        con = sqlite3.connect(self.db_path)
-        return con
+        self.backend = backend or llm.make_backend(client)
+        self.model = self.backend.model
+        self._states = {}  # conversation_id -> backend message state (append-only within a process)
 
     def ask(self, user_id, question, conversation_id=None):
-        con = self._con()
+        con = sqlite3.connect(self.db_path)
         try:
             if not con.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,)).fetchone():
                 raise ValueError(f"unknown user {user_id}")
             conversation_id = conversation_id or f"conv-{uuid.uuid4().hex[:12]}"
             ctx = tools.Context(con, user_id, conversation_id=conversation_id)
             user_name = con.execute("SELECT name FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
-            system = [{"type": "text", "text": INSTRUCTIONS.format(today=ctx.today.isoformat(), directory=directory(con))}]
-            messages = self._history(con, conversation_id, user_id)
-            messages.append({"role": "user", "content": f"[{user_name}, {user_id}] {question}"})
-            answer = self._loop(ctx, system, messages)
+            prompt = f"[{user_name}, {user_id}] {question}"
+            state = self._states.get(conversation_id)
+            if state is None:
+                system = INSTRUCTIONS.format(today=ctx.today.isoformat(), directory=directory(con))
+                state = self.backend.start(system, self._history(con, conversation_id, user_id), prompt)
+                self._states[conversation_id] = state
+            else:
+                state["messages"].append({"role": "user", "content": prompt})
+            answer = self._loop(ctx, state, question)
             self._save_turns(con, conversation_id, user_id, question, answer)
             answer["conversation_id"] = conversation_id
             return answer
         finally:
             con.close()
 
-    def _loop(self, ctx, system, messages):
-        results, usage = {}, {"tool_calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "model_calls": 0}
-        final = None
+    def _loop(self, ctx, state, question):
+        results, final = {}, None
+        usage = {"tool_calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_write_tokens": 0, "cache_read_tokens": 0, "model_calls": 0}
+        defs = tools.tool_definitions() + [PRESENT]
         for _ in range(MAX_STEPS):
-            response = self.client.beta.messages.create(
-                model=self.model, max_tokens=16000, system=system, messages=messages,
-                tools=tools.tool_definitions() + [PRESENT], output_config={"effort": self.effort},
-                cache_control={"type": "ephemeral"},
-                betas=["server-side-fallback-2026-07-01"], fallbacks="default",
-            )
-            self._count(usage, response)
-            if response.stop_reason == "refusal":
+            step = self.backend.step(state, defs)
+            usage["model_calls"] += 1
+            for k, v in step.usage.items():
+                usage[k] = usage.get(k, 0) + v
+            if step.refused:
                 final = {"answer": "I can't help with that request.", "visual_type": "none"}
                 break
-            messages.append({"role": "assistant", "content": response.content})
-            calls = [b for b in response.content if b.type == "tool_use"]
-            if not calls:
-                text = "".join(b.text for b in response.content if b.type == "text")
-                final = {"answer": text or "(no answer)", "visual_type": "auto"}
+            if not step.calls:
+                final = {"answer": step.text or "(no answer)", "visual_type": "auto"}
                 break
-            tool_results = []
-            for call in calls:
+            replies = []
+            for call in step.calls:
                 if call.name == "present_answer":
                     final = dict(call.input)
-                    tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": "delivered"})
+                    replies.append((call.id, "delivered", False))
                     continue
                 usage["tool_calls"] += 1
+                if call.error:
+                    replies.append((call.id, f"Error: {call.error}", True))
+                    continue
                 rid = f"R{len(results) + 1}"
                 try:
-                    out = tools.run(ctx, call.name, dict(call.input))
-                    results[rid] = {"tool": call.name, "input": dict(call.input), **out}
-                    tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": json.dumps(self._for_model(rid, out), default=str)})
+                    out = tools.run(ctx, call.name, call.input)
+                    results[rid] = {"tool": call.name, "input": call.input, **out}
+                    replies.append((call.id, json.dumps(self._for_model(rid, out), default=str), False))
                 except (tools.ToolError, OverlayError, TypeError) as err:
-                    tool_results.append({"type": "tool_result", "tool_use_id": call.id, "content": f"Error: {err}", "is_error": True})
-            messages.append({"role": "user", "content": tool_results})
+                    replies.append((call.id, f"Error: {err}", True))
+            self.backend.add_results(state, replies)
             if final:
                 break
         else:
             final = {"answer": "I could not finish this answer within the step limit.", "visual_type": "none"}
-        return self._compose(final, results, usage)
+        if not final.get("answer") and results:
+            final["answer"] = "(the model returned no text; the records it used are below)"
+        return self._compose(final, results, usage, question)
 
-    @staticmethod
-    def _for_model(rid, out):
-        """What the model sees: data and flags in full, evidence capped, visuals only as available types."""
-        return {"result_id": rid, "summary": out["summary"], "rows": out["rows"], "flags": out["flags"],
-                "evidence": out["evidence"][:40], "visual_types_available": sorted(out["visuals"])}
+    def _for_model(self, rid, out):
+        """What the model sees: data, flags and evidence refs; visuals only as the types available.
+        Small models get a compact view (fewer rows, no empty fields) so the context does not overflow."""
+        rows, evidence = out["rows"], out["evidence"][:40]
+        if self.backend.compact:
+            rows = [{k: v for k, v in r.items() if v not in (None, "", [], {})} for r in rows[:COMPACT_ROWS]]
+            evidence = [{"kind": e["kind"], "ref": e["ref"]} for e in evidence[:15]]
+        view = {"result_id": rid, "summary": out["summary"], "rows": rows, "flags": out["flags"],
+                "evidence": evidence, "visual_types_available": sorted(out["visuals"])}
+        if len(out["rows"]) > len(rows):
+            view["note"] = f"showing {len(rows)} of {len(out['rows'])} rows; use the summary for totals"
+        return view
 
-    def _compose(self, final, results, usage):
-        visual = None
+    def _compose(self, final, results, usage, question=""):
         vtype, rid = final.get("visual_type"), final.get("visual_result_id")
+        if vtype in (None, "auto"):
+            vtype = next((v for word, v in VISUAL_WORDS if word in question.lower()), "auto")
+        visual = None
         if vtype == "auto":
             visual = self._auto_visual(results)
-        elif vtype and vtype != "none":
-            source = results.get(rid) or next((r for r in reversed(list(results.values())) if vtype in r["visuals"]), None)
+        elif vtype != "none":
+            source = results.get(rid) if rid in results and vtype in results[rid]["visuals"] else None
+            source = source or next((r for r in reversed(list(results.values())) if vtype in r["visuals"]), None)
             if source:
                 visual = source["visuals"].get(vtype) or source["visuals"].get("table")
-                if visual:
-                    visual = dict(visual, title=final.get("visual_title") or visual.get("title"))
+                if visual and final.get("visual_title"):
+                    visual = dict(visual, title=final["visual_title"])
         evidence, seen, flags = [], set(), []
         for r in results.values():
             for e in r["evidence"]:
@@ -179,10 +190,9 @@ class Copilot:
                     seen.add(key)
                     evidence.append(e)
             flags += r["flags"]
-        p = PRICES.get(self.model, PRICES["claude-opus-5-5"])
-        usage["cost_usd"] = round((usage["input_tokens"] * p[0] + usage["output_tokens"] * p[1]
-                                   + usage["cache_write_tokens"] * p[2] + usage["cache_read_tokens"] * p[3]) / 1e6, 4)
+        usage["cost_usd"] = llm.cost(self.model, usage)
         usage["model"] = self.model
+        usage["provider"] = self.backend.provider
         return {"text": final.get("answer", ""), "visual": visual, "evidence": evidence, "flags": flags,
                 "tools_used": [{"id": k, "tool": v["tool"], "input": v["input"]} for k, v in results.items()], "usage": usage}
 
@@ -196,26 +206,13 @@ class Copilot:
                 return last[t]
         return None
 
-    @staticmethod
-    def _count(usage, r):
-        u = r.usage
-        usage["model_calls"] += 1
-        usage["input_tokens"] += u.input_tokens or 0
-        usage["output_tokens"] += u.output_tokens or 0
-        usage["cache_write_tokens"] += getattr(u, "cache_creation_input_tokens", 0) or 0
-        usage["cache_read_tokens"] += getattr(u, "cache_read_input_tokens", 0) or 0
-
     # --- private memory -------------------------------------------------------------------------
 
-    def _history(self, con, conversation_id, user_id):
-        if conversation_id in self._histories:
-            return self._histories[conversation_id]
-        msgs = []
-        for role, text in con.execute("SELECT role, text FROM turns WHERE conversation_id = ? AND user_id = ? ORDER BY seq",
-                                      (conversation_id, user_id)):
-            msgs.append({"role": role, "content": text})
-        self._histories[conversation_id] = msgs
-        return msgs
+    @staticmethod
+    def _history(con, conversation_id, user_id):
+        """Earlier turns of this conversation as plain text (used when the process has no live state for it)."""
+        return [{"role": role, "content": text} for role, text in con.execute(
+            "SELECT role, text FROM turns WHERE conversation_id = ? AND user_id = ? ORDER BY seq", (conversation_id, user_id))]
 
     @staticmethod
     def _save_turns(con, conversation_id, user_id, question, answer):

@@ -27,7 +27,7 @@ _copilot = None
 def copilot():
     global _copilot
     if _copilot is None:
-        from .agent import Copilot  # imported lazily so the read-only API works without model credentials
+        from .agent import Copilot  # imported lazily so the read-only API works without a model
         _copilot = Copilot(DB)
     return _copilot
 
@@ -56,8 +56,13 @@ class Ask(BaseModel):
 @app.get("/api/health")
 def health():
     wells = q("SELECT COUNT(*) AS n FROM wells")[0]["n"]
-    creds = bool(os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN"))
-    return {"ok": True, "wells": wells, "model_credentials": creds}
+    try:
+        b = copilot().backend
+        ready, detail = b.ready()
+        info = {"provider": b.provider, "model": b.model}
+    except Exception as err:  # e.g. unknown provider in the environment
+        ready, detail, info = False, str(err), {}
+    return {"ok": True, "wells": wells, "model_ready": ready, "model_detail": detail, **info}
 
 
 @app.get("/api/users")
@@ -99,13 +104,13 @@ def ask(body: Ask):
         owner = q("SELECT user_id FROM conversations WHERE conversation_id = ?", (body.conversation_id,))
         if owner and owner[0]["user_id"] != body.user_id:
             raise HTTPException(404, "no such conversation for this user")
+    ready, detail = copilot().backend.ready()
+    if not ready:
+        raise HTTPException(503, f"The model is not available: {detail}.")
     try:
         return copilot().ask(body.user_id, body.question, body.conversation_id)
-    except Exception as err:  # surface model/auth problems to the UI instead of a bare 500
-        name = type(err).__name__
-        if "Authentication" in name or "api_key" in str(err).lower() or "auth" in str(err).lower():
-            raise HTTPException(503, "The copilot has no model credentials. Set ANTHROPIC_API_KEY and restart the server.")
-        raise HTTPException(502, f"{name}: {err}")
+    except Exception as err:  # surface model/provider problems to the UI instead of a bare 500
+        raise HTTPException(502, f"{type(err).__name__}: {err}")
 
 
 if os.path.isdir(WEB):

@@ -137,7 +137,7 @@ user names a visual.
 |---|---|---|
 | Backend | Python, FastAPI | Fast to build; strong data tooling |
 | Store | SQLite or DuckDB, plus a local vector index | No infra; reloads fast |
-| LLM | Claude Opus 5.5 (`claude-opus-5-5`, effort `medium`) drives the agent; server-side refusal fallback on. No LLM at load time (report facts parse with regexes). `WELLSPRING_MODEL` / `WELLSPRING_EFFORT` switch model, e.g. Sonnet 5.5 for lower cost | Every answer reports tokens and USD cost |
+| LLM | Free by default: Gemma 4 12B on local Ollama (`gemma4:12b-32k`, a 32K-context tag of `gemma4:12b`). Pluggable (`wellspring/llm.py`): OpenRouter or Google AI Studio free tiers, or Claude Opus 5.5 when `ANTHROPIC_API_KEY` is set. No LLM at load time (report facts parse with regexes) | Zero cost, no rate limit, data stays local; every answer still reports tokens and cost |
 | UI | React chat with chart/map/table components | Generative UI inline |
 | Tests | Ground-truth scripts and a replay harness for Q1–Q18 | Proves correctness without the LLM |
 

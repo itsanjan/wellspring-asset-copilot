@@ -7,7 +7,7 @@ async function get<T>(url: string): Promise<T> {
 }
 
 export const api = {
-  health: () => get<{ ok: boolean; wells: number; model_credentials: boolean }>("/api/health"),
+  health: () => get<{ ok: boolean; wells: number; model_ready: boolean; model_detail: string; provider?: string; model?: string }>("/api/health"),
   users: () => get<User[]>("/api/users"),
   conversations: (userId: string) => get<Conversation[]>(`/api/conversations?user_id=${encodeURIComponent(userId)}`),
   conversation: (id: string, userId: string) =>

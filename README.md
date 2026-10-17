@@ -18,8 +18,14 @@ scripts/fetch_data.sh          # downloads the organizer's sample dataset into d
 python3 -I ground_truth/ground_truth.py    # recomputes Q1-Q8 straight from the raw files
 python3 -m wellspring.loader --data data/sample-data --db var/wellspring.db   # build the SQLite store (about 1 s)
 uv venv --python 3.12 .venv && uv pip install --python .venv/bin/python -r requirements.txt
-export ANTHROPIC_API_KEY=...   # the copilot uses Claude Opus 5.5 by default
-.venv/bin/python -m wellspring.chat --user U-201 "Is WELL-0001 producing oil right now? Show me its status card." 
+
+# Model: free and local by default (Ollama + Gemma 4). One-time setup:
+ollama pull gemma4:12b
+printf 'FROM gemma4:12b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile && ollama create gemma4:12b-32k -f /tmp/Modelfile
+# Other providers: WELLSPRING_PROVIDER=openrouter|gemini|anthropic plus its key (see wellspring/llm.py)
+
+.venv/bin/python -m wellspring.chat --user U-201 "Is WELL-0001 producing oil right now? Show me its status card."
+.venv/bin/python scripts/run_eval.py   # Q1-Q10 against the expected facts and visuals
 
 # Web UI (chat, user picker, inline visuals, citations)
 (cd web && npm install && npm run build)
