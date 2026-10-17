@@ -22,6 +22,7 @@ python3 -I ground_truth/ground_truth.py    # recomputes Q1-Q8 straight from the 
 
 | Path | What |
 |---|---|
+| `problem-statement/` | Organizer's challenge documents, copied as-is for reference |
 | `CONCEPT.md` | Proposal and architecture |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
 | `scripts/` | Helper scripts (data fetch) |
