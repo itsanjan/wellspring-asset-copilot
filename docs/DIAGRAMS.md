@@ -151,7 +151,7 @@ sequenceDiagram
 
     M->>A: "15 Oct reading for WELL-0164 is wrong, re-measured at 41.0 C"
     A->>A: classify: correction, target INS-0164-0205, scope: one record
-    A->>O: append {target, original 24.0, new 41.0, author, reason, time, status confirmed}
+    A->>O: append {target, original 24.0, new 41.0, author, reason, time, status active}
     A->>A: re-evaluate WELL-0164: 21.1 C above air, T200 limit 15, producing
     A->>A: conflict check: inspector note "Pump jack not moving"
     A-->>M: recorded - producing - but note disagrees, please confirm
@@ -277,7 +277,7 @@ erDiagram
         string author_user_id FK
         string reason
         datetime created_at
-        string status "confirmed, unconfirmed, superseded"
+        string status "active, unconfirmed, superseded"
     }
     REPORT_FACT {
         string maintenance_id FK

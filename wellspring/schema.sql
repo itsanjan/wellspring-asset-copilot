@@ -59,24 +59,85 @@ CREATE TABLE doc_chunks (
 );
 CREATE INDEX ix_chunks_doc ON doc_chunks (doc_id);
 
+-- L3 overlay: user-supplied corrections, rules, notes and claims. Append-only: an entry is
+-- never edited or deleted, only superseded. It survives dataset reloads (see loader.PRESERVE).
+CREATE TABLE overlay_entries (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind TEXT NOT NULL,            -- correction | rule | note | claim
+    target_type TEXT NOT NULL,     -- inspection | well | well_type
+    target_ref TEXT NOT NULL,      -- inspection_id, asset_id or well type
+    field TEXT,                    -- e.g. wellhead_temp_c, spill_est_volume_bbl, rca_corrective_repairs
+    original_value TEXT,           -- value in the raw data / manual when the entry was made
+    new_value TEXT,
+    text TEXT,                     -- free text of the claim or note
+    reason TEXT,
+    author_user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    valid_from TEXT, valid_to TEXT,
+    status TEXT NOT NULL DEFAULT 'active',   -- active | unconfirmed | superseded
+    superseded_by INTEGER,
+    confirmed_by TEXT, confirmed_at TEXT
+);
+CREATE INDEX ix_ovl_target ON overlay_entries (target_type, target_ref, field);
+
 -- L1 derived views --------------------------------------------------------------------------
 
--- One row per inspection with the producing flag and effective (post-correction) spill flag.
+-- Newest active correction/rule per target and field.
+CREATE VIEW v_current_overlay AS
+SELECT o.* FROM overlay_entries o
+WHERE o.kind IN ('correction', 'rule') AND o.status = 'active'
+  AND o.seq = (SELECT MAX(p.seq) FROM overlay_entries p
+               WHERE p.kind = o.kind AND p.status = 'active' AND p.target_type = o.target_type
+                 AND p.target_ref = o.target_ref AND IFNULL(p.field, '') = IFNULL(o.field, ''));
+
+-- One row per inspection. wellhead_temp_c, ambient_temp_c, spill_detected and spill_est_volume_bbl are
+-- EFFECTIVE values (raw data with overlay corrections applied); the raw_* columns keep the originals.
 -- producing is NULL when the well type has no parsed threshold: unknown, never guessed.
 CREATE VIEW v_inspection AS
-SELECT i.*, w.well_type, w.area_id, w.lat, w.lon,
+WITH base AS (
+  SELECT i.inspection_id, i.asset_id, i.inspected_at, i.inspector_user_id, i.method, i.spill_area_pct,
+         i.evidence_images, i.notes,
+         i.wellhead_temp_c AS raw_wellhead_temp_c, i.ambient_temp_c AS raw_ambient_temp_c,
+         i.spill_detected AS raw_spill_detected, i.spill_est_volume_bbl AS raw_spill_est_volume_bbl,
+         COALESCE((SELECT CAST(c.new_value AS REAL) FROM v_current_overlay c WHERE c.kind = 'correction'
+                   AND c.target_type = 'inspection' AND c.target_ref = i.inspection_id AND c.field = 'wellhead_temp_c'),
+                  i.wellhead_temp_c) AS wellhead_temp_c,
+         COALESCE((SELECT CAST(c.new_value AS REAL) FROM v_current_overlay c WHERE c.kind = 'correction'
+                   AND c.target_type = 'inspection' AND c.target_ref = i.inspection_id AND c.field = 'ambient_temp_c'),
+                  i.ambient_temp_c) AS ambient_temp_c,
+         COALESCE((SELECT CAST(c.new_value AS INTEGER) FROM v_current_overlay c WHERE c.kind = 'correction'
+                   AND c.target_type = 'inspection' AND c.target_ref = i.inspection_id AND c.field = 'spill_detected'),
+                  i.spill_detected) AS spill_detected,
+         COALESCE((SELECT CAST(c.new_value AS REAL) FROM v_current_overlay c WHERE c.kind = 'correction'
+                   AND c.target_type = 'inspection' AND c.target_ref = i.inspection_id AND c.field = 'spill_est_volume_bbl'),
+                  i.spill_est_volume_bbl) AS spill_est_volume_bbl,
+         (SELECT GROUP_CONCAT('OVL-' || c.seq) FROM v_current_overlay c
+           WHERE c.kind = 'correction' AND c.target_type = 'inspection' AND c.target_ref = i.inspection_id) AS overlay_ids
+  FROM inspections i
+)
+SELECT b.*, w.well_type, w.area_id, w.lat, w.lon,
        rp.value AS threshold_c,
-       ROUND(i.wellhead_temp_c - i.ambient_temp_c, 1) AS delta_c,
+       ROUND(b.wellhead_temp_c - b.ambient_temp_c, 1) AS delta_c,
        CASE WHEN rp.value IS NULL THEN NULL
-            WHEN ROUND(i.wellhead_temp_c - i.ambient_temp_c, 1) >= rp.value THEN 1 ELSE 0 END AS producing,
-       EXISTS (SELECT 1 FROM notes n WHERE n.note_type = 'correction' AND n.inspection_id = i.inspection_id) AS is_corrected,
-       CASE WHEN i.spill_detected = 1 AND NOT EXISTS
-            (SELECT 1 FROM notes n WHERE n.note_type = 'correction' AND n.inspection_id = i.inspection_id)
+            WHEN ROUND(b.wellhead_temp_c - b.ambient_temp_c, 1) >= rp.value THEN 1 ELSE 0 END AS producing,
+       EXISTS (SELECT 1 FROM notes n WHERE n.note_type = 'correction' AND n.inspection_id = b.inspection_id) AS is_corrected,
+       CASE WHEN b.spill_detected = 1 AND NOT EXISTS
+            (SELECT 1 FROM notes n WHERE n.note_type = 'correction' AND n.inspection_id = b.inspection_id)
             THEN 1 ELSE 0 END AS real_spill,
-       SUBSTR(i.inspected_at, 1, 10) AS day
-FROM inspections i
-JOIN wells w ON w.asset_id = i.asset_id
-LEFT JOIN rule_params rp ON rp.well_type = w.well_type AND rp.name = 'producing_delta_c';
+       SUBSTR(b.inspected_at, 1, 10) AS day
+FROM base b
+JOIN wells w ON w.asset_id = b.asset_id
+LEFT JOIN v_rule_effective rp ON rp.well_type = w.well_type AND rp.name = 'producing_delta_c';
+
+-- Manual rule values with user rules (overlay, type scope) applied. source says where each came from.
+CREATE VIEW v_rule_effective AS
+SELECT rp.well_type, rp.name,
+       COALESCE(CAST(o.new_value AS REAL), rp.value) AS value,
+       CASE WHEN o.seq IS NULL THEN rp.source ELSE 'user rule OVL-' || o.seq || ' by ' || o.author_user_id END AS source,
+       rp.value AS manual_value, o.seq IS NOT NULL AS overridden
+FROM rule_params rp
+LEFT JOIN v_current_overlay o ON o.kind = 'rule' AND o.target_type = 'well_type'
+     AND o.target_ref = rp.well_type AND o.field = rp.name;
 
 -- Each non-producing inspection counts as 7 days of downtime; missed inspections add nothing.
 CREATE VIEW v_downtime AS

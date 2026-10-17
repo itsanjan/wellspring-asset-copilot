@@ -18,6 +18,8 @@ import sys
 from . import reports, rules
 
 SCHEMA = os.path.join(os.path.dirname(__file__), "schema.sql")
+# User state that must survive a dataset reload (data tables are rebuilt from scratch).
+PRESERVE = ("overlay_entries",)
 
 
 def jl(path):
@@ -139,12 +141,32 @@ def load_well(con, root, well_dir, stats):
         stats["reports"] += 1
 
 
+def _saved_state(db_path):
+    """Rows of the PRESERVE tables from an existing database, so a reload keeps user state."""
+    saved = {}
+    if not os.path.exists(db_path):
+        return saved
+    con = sqlite3.connect(db_path)
+    for table in PRESERVE:
+        try:
+            cur = con.execute(f"SELECT * FROM {table}")
+            saved[table] = ([d[0] for d in cur.description], cur.fetchall())
+        except sqlite3.OperationalError:
+            pass  # table did not exist in an older database
+    con.close()
+    return saved
+
+
 def load(data_dirs, db_path):
+    saved = _saved_state(db_path)
     if os.path.exists(db_path):
         os.remove(db_path)
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
     con = sqlite3.connect(db_path)
-    con.executescript(open(SCHEMA).read())
+    with open(SCHEMA) as f:
+        con.executescript(f.read())
+    for table, (cols, rows) in saved.items():
+        con.executemany(f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})", rows)
     stats = {k: 0 for k in ("documents", "inspections", "maintenance", "regulatory_events", "notes", "reports")}
     for root in data_dirs:
         load_fleet(con, root, stats)
@@ -154,7 +176,8 @@ def load(data_dirs, db_path):
     con.commit()
     problems = check(con)
     stats = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in
-             ("wells", "inspections", "maintenance", "regulatory_events", "notes", "report_facts", "doc_chunks")}
+             ("wells", "inspections", "maintenance", "regulatory_events", "notes", "report_facts", "doc_chunks",
+              "overlay_entries")}
     con.close()
     return stats, problems
 

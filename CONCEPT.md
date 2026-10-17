@@ -89,7 +89,7 @@ Principles:
   time, classification and "action required", keeping a pointer to the source file via
   `report_file`. Keyword + vector search over chunks for rule lookup.
 - **Overlay (L3)** is append-only: each entry has target (record or well type), scope,
-  new value, original value, author, reason, timestamp, and status (`confirmed`,
+  new value, original value, author, reason, timestamp, and status (`active`,
   `unconfirmed`, `superseded`). Effective values are computed at read time.
 
 ### Tools (proposed set)
@@ -169,7 +169,7 @@ user names a visual.
 - [ ] Build the UI shell with user picker
 
 **Later**
-- [ ] Overlay store and scoped feedback (Q12–Q14)
+- [x] Overlay store and scoped feedback (`wellspring/overlay.py`): Q12, Q13, Q14 and the Q15 regulator check reproduce through the views
 - [ ] Conflict detector (Q15–Q18)
 - [ ] Perturbed-data test for generalization
 - [ ] Cost tracking per answer for the write-up
