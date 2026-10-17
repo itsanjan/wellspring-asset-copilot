@@ -1,9 +1,11 @@
 """Load one or more datasets in the challenge format into a SQLite database.
 
-    python3 -m wellspring.loader --data data/sample-data [--data data/test-data] --db var/wellspring.db
+    python3 -m wellspring.loader --data data/sample-data [--data data/test-data] --db var/wellspring.db [--fresh] [--today YYYY-MM-DD]
 
 The load is a full rebuild, so it is idempotent. Passing several --data folders loads them
-side by side (later folders add wells, or replace records with the same ID).
+side by side (later folders add wells, or replace records with the same ID). User state (corrections,
+notes, conversations) is kept across reloads unless --fresh is given. "Today" defaults to the day after
+the latest inspection in the data (16 Oct 2026 for the sample); --today or WELLSPRING_TODAY override it.
 """
 from __future__ import annotations
 
@@ -14,6 +16,7 @@ import os
 import re
 import sqlite3
 import sys
+from datetime import date, datetime, timedelta, timezone
 
 from . import reports, rules
 
@@ -159,8 +162,8 @@ def _saved_state(db_path):
     return saved
 
 
-def load(data_dirs, db_path):
-    saved = _saved_state(db_path)
+def load(data_dirs, db_path, fresh=False, today=None):
+    saved = {} if fresh else _saved_state(db_path)
     if os.path.exists(db_path):
         os.remove(db_path)
     os.makedirs(os.path.dirname(os.path.abspath(db_path)), exist_ok=True)
@@ -176,6 +179,12 @@ def load(data_dirs, db_path):
         for well_dir in wells:
             load_well(con, root, well_dir, stats)
     con.execute("INSERT INTO doc_fts(doc_fts) VALUES ('rebuild')")
+    latest = con.execute("SELECT MAX(SUBSTR(inspected_at, 1, 10)) FROM inspections").fetchone()[0]
+    derived = (date.fromisoformat(latest) + timedelta(days=1)).isoformat() if latest else None
+    for k, v in {"today": today or derived, "today_source": "--today" if today else "day after latest inspection",
+                 "latest_inspection": latest, "sources": json.dumps([os.path.abspath(d) for d in data_dirs]),
+                 "loaded_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}.items():
+        con.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", (k, v))
     con.commit()
     problems = check(con)
     stats = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in
@@ -208,12 +217,40 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--data", action="append", required=True, help="dataset folder containing fleet/ and assets/ (repeatable)")
     ap.add_argument("--db", default="var/wellspring.db")
+    ap.add_argument("--fresh", action="store_true", help="drop user corrections, notes and conversations")
+    ap.add_argument("--today", help="override the dataset's 'today' (YYYY-MM-DD)")
+    ap.add_argument("--quiet", action="store_true", help="print only the counts")
     args = ap.parse_args(argv)
-    stats, problems = load(args.data, args.db)
+    if args.today:
+        date.fromisoformat(args.today)  # fail fast on a bad date
+    stats, problems = load(args.data, args.db, fresh=args.fresh, today=args.today)
     print(json.dumps(stats))
+    if not args.quiet:
+        report(args.db)
     for p in problems:
         print("WARNING:", p, file=sys.stderr)
     return 1 if problems else 0
+
+
+def report(db_path):
+    """Human-readable summary to eyeball after loading a new dataset."""
+    con = sqlite3.connect(db_path)
+    q = lambda sql: con.execute(sql).fetchall()
+    meta = dict(q("SELECT key, value FROM meta"))
+    print(f"today = {meta.get('today')} ({meta.get('today_source')}; latest inspection {meta.get('latest_inspection')})")
+    for a, n, c in q("SELECT a.area_id, a.name, COUNT(w.asset_id) FROM areas a LEFT JOIN wells w USING(area_id) GROUP BY a.area_id"):
+        print(f"  area {a} {n}: {c} wells")
+    orphans = q("SELECT COUNT(*) FROM wells WHERE area_id NOT IN (SELECT area_id FROM areas)")[0][0]
+    if orphans:
+        print(f"  {orphans} wells in areas not listed in areas.json")
+    for t, c in q("SELECT well_type, COUNT(*) FROM wells GROUP BY well_type"):
+        thr = q(f"SELECT value, source FROM rule_params WHERE well_type = '{t}' AND name = 'producing_delta_c'")
+        print(f"  well type {t}: {c} wells, producing threshold " + (f"{thr[0][0]:g} C ({thr[0][1]})" if thr else "MISSING"))
+    sop = q("SELECT name, value FROM rule_params WHERE well_type = '*' ORDER BY name")
+    print("  SOP rules: " + ", ".join(f"{n}={v:g}" for n, v in sop))
+    print(f"  users: {q('SELECT COUNT(*) FROM users')[0][0]}, kept user entries: {q('SELECT COUNT(*) FROM overlay_entries')[0][0]}, "
+          f"kept conversations: {q('SELECT COUNT(*) FROM conversations')[0][0]}")
+    con.close()
 
 
 if __name__ == "__main__":

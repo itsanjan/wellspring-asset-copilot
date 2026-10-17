@@ -1,5 +1,8 @@
 -- L0 raw records (read-only after load), L1 derived views, L2 documents.
 
+-- Load facts: "today" for the dataset, data sources, load time.
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT);
+
 CREATE TABLE teams (team_id TEXT PRIMARY KEY, name TEXT, lead_user_id TEXT);
 CREATE TABLE users (user_id TEXT PRIMARY KEY, name TEXT, role TEXT, team_id TEXT);
 CREATE TABLE areas (area_id TEXT PRIMARY KEY, name TEXT, team_id TEXT, center_lat REAL, center_lon REAL);

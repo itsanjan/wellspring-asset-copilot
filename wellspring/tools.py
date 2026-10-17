@@ -16,7 +16,7 @@ import json
 import os
 import re
 import sqlite3
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from . import overlay
@@ -29,8 +29,17 @@ MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 class Context:
     con: sqlite3.Connection
     user_id: str
-    today: date = field(default_factory=lambda: date.fromisoformat(os.environ.get("WELLSPRING_TODAY", "2026-10-16")))
+    today: date | None = None  # resolved in __post_init__: WELLSPRING_TODAY, else the loaded dataset's "today"
     conversation_id: str | None = None
+
+    def __post_init__(self):
+        if self.today is None:
+            env = os.environ.get("WELLSPRING_TODAY")
+            try:
+                row = None if env else self.con.execute("SELECT value FROM meta WHERE key = 'today'").fetchone()
+            except sqlite3.OperationalError:  # database built before the meta table existed
+                row = None
+            self.today = date.fromisoformat(env or (row[0] if row and row[0] else "2026-10-16"))
 
 
 # --- helpers ------------------------------------------------------------------------------------

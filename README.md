@@ -26,6 +26,8 @@ printf 'FROM gemma4:12b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile && ollama c
 
 .venv/bin/python -m wellspring.chat --user U-201 "Is WELL-0001 producing oil right now? Show me its status card."
 .venv/bin/python scripts/run_eval.py   # Q1-Q10 against the expected facts and visuals
+.venv/bin/python scripts/run_scenarios.py   # Q11-Q18: memory, corrections, multiple users
+.venv/bin/python scripts/check_dataset.py   # smoke-check a loaded dataset, no model needed
 
 # Web UI (chat, user picker, inline visuals, citations)
 (cd web && npm install && npm run build)
@@ -39,6 +41,7 @@ printf 'FROM gemma4:12b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile && ollama c
 |---|---|
 | `problem-statement/` | Organizer's challenge documents, copied as-is for reference |
 | `CONCEPT.md` | Proposal and architecture |
+| `docs/FINAL-HOURS.md` | Runbook for loading the test dataset and answering the final questions |
 | `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
 | `docs/QA-VALIDATION-PLAN.md` | QA plan: scenarios, functional and non-functional checks, with status tracking |
 | `tests/` | Unit, parity, and end-to-end tests (`python3 -m unittest discover -s tests -t .`) |
