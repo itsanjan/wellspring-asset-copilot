@@ -21,6 +21,7 @@ const FLAG_STYLE: Record<string, { label: string; icon: string; color: string }>
   no_recorded_reason: { label: "No recorded reason", icon: "?", color: "var(--warning)" },
   report_outdated: { label: "Report outdated", icon: "!", color: "var(--serious)" },
   missing_rule: { label: "Missing rule", icon: "!", color: "var(--critical)" },
+  containment_breach: { label: "Rule broken", icon: "!", color: "var(--critical)" },
   correction_applied: { label: "Corrected", icon: "✎", color: "var(--ink-2)" },
   other_statement: { label: "Also on record", icon: "”", color: "var(--ink-2)" },
   data_note: { label: "Note", icon: "i", color: "var(--ink-2)" },

@@ -301,6 +301,19 @@ def spills(ctx, start=None, end=None, area_id=None, asset_ids=None, min_class=No
             d["notes_about_detection"] = disagreement
             flags.append({"kind": "conflict", "refs": [d["inspection_id"]] + [n["note_id"] for n in disagreement],
                           "message": f"{d['inspection_id']}: notes discuss this detection but none is a formal correction, so it stands"})
+        # Containment time lives only in the repair report (SR-02 row); attach it so every spill answer has it.
+        rf = _rows(ctx, "SELECT maintenance_id, contained_hours, limit_hours, report_path FROM report_facts "
+                        "WHERE inspection_id = ? AND protocol = 'SR-02' AND contained_hours IS NOT NULL", (d["inspection_id"],))
+        if rf:
+            f = rf[0]
+            d.update(contained_hours=f["contained_hours"], containment_limit_hours=f["limit_hours"],
+                     contained_within_limit=f["contained_hours"] <= f["limit_hours"], repair_report=f["maintenance_id"])
+            evidence.append({"kind": "report", "ref": f["maintenance_id"], "detail": f"contained after about {f['contained_hours']} h (limit {f['limit_hours']:g} h)", "source": f["report_path"]})
+            if f["contained_hours"] > f["limit_hours"]:
+                flags.append({"kind": "containment_breach", "refs": [d["inspection_id"], f["maintenance_id"]],
+                              "message": f"{d['asset_id']} spill {d['day']}: contained after about {f['contained_hours']} h, over the {f['limit_hours']:g} h SR-02 limit (report {f['maintenance_id']})"})
+        else:
+            d["contained_hours"] = None  # no report with a containment time; say unknown, never assume met
         if d["overlay_ids"] and d["raw_volume_bbl"] != d["volume_bbl"]:
             flags.append({"kind": "correction_applied", "refs": [d["inspection_id"], d["overlay_ids"]],
                           "message": f"{d['inspection_id']}: volume corrected from AI estimate {d['raw_volume_bbl']} to {d['volume_bbl']} bbl ({d['overlay_ids']})"})
@@ -311,9 +324,11 @@ def spills(ctx, start=None, end=None, area_id=None, asset_ids=None, min_class=No
     rep = _rule(ctx, "spill_reportable_bbl")
     if rep:
         evidence.append({"kind": "sop", "ref": rep["source"], "detail": f"reportable at >= {rep['value']} bbl", "source": rep["source"]})
-    visuals = {"table": _table(rows, ["asset_id", "inspection_id", "day", "volume_bbl", "spill_class", "spill_area_pct"]),
+    visuals = {"table": _table(rows, ["asset_id", "inspection_id", "day", "volume_bbl", "spill_class", "contained_hours"]),
                "map": {"type": "map", "pins": [{"lat": r["lat"], "lon": r["lon"], "label": r["asset_id"], "detail": f"{r['day']}: {r['volume_bbl']} bbl"} for r in rows]}}
     summary = {"window": [s, e], "spills": len(rows), "total_bbl": round(sum(r["volume_bbl"] or 0 for r in rows), 1),
+               "containment_breaches": [r["asset_id"] + " " + r["day"] for r in rows if r.get("contained_within_limit") is False],
+               "containment_unknown": sum(1 for r in rows if r.get("contained_hours") is None),
                "detections": len(detections), "excluded_as_corrected": len(excluded), "excluded": excluded}
     if group_by in ("area_month", "area", "well"):
         months = sorted({r["day"][:7] for r in rows}) or []
