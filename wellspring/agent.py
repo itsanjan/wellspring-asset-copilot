@@ -53,6 +53,9 @@ How to work:
 - "Right now" means each well's latest inspection. Periods like "last 4 months" end today. A repair belongs to a
   period by its start date. Today is {today}.
 - When something is not producing and no record explains it, say so plainly and suggest a check. Do not invent causes.
+- Explain the numbers: when a tool reports records it excluded (e.g. detections corrected as not oil) or the cause
+  of a period (possible_causes, notes), say so with their IDs.
+- Cite record and document IDs only; never cite internal result IDs such as R1.
 - Honesty about conflicts: if records, notes or people disagree (including the user), show both sides and which one
   the data supports. Never silently pick one. Unconfirmed claims never override inspection data.
 - When the user corrects data or the AI's analysis, record it with record_correction (one inspection) or
@@ -193,7 +196,9 @@ class Copilot:
         usage["cost_usd"] = llm.cost(self.model, usage)
         usage["model"] = self.model
         usage["provider"] = self.backend.provider
-        return {"text": final.get("answer", ""), "visual": visual, "evidence": evidence, "flags": flags,
+        # Result IDs (R1, R2...) are internal handles for choosing visuals, not citations; drop any that leak into prose.
+        text = re.sub(r"\s*\((?:R\d+(?:,\s*)?)+\)", "", final.get("answer", ""))
+        return {"text": text, "visual": visual, "evidence": evidence, "flags": flags,
                 "tools_used": [{"id": k, "tool": v["tool"], "input": v["input"]} for k, v in results.items()], "usage": usage}
 
     @staticmethod

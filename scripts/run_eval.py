@@ -73,7 +73,8 @@ def main():
                     "error": err, "answer": a.get("text"), "tools": [t["tool"] for t in a.get("tools_used", [])], "usage": a.get("usage")})
         print(f"{cid}: facts {score}/{len(facts)}, visual {'ok' if vis_ok else vt}, {secs}s", flush=True)
     b = bot.backend
-    path = f"var/eval-{b.provider}-{b.model.replace('/', '_').replace(':', '_')}.json"
+    suffix = ("-" + "-".join(sorted(only))) if only else ""  # partial runs never overwrite the full results
+    path = f"var/eval-{b.provider}-{b.model.replace('/', '_').replace(':', '_')}{suffix}.json"
     with open(path, "w") as f:
         json.dump(out, f, indent=2, default=str)
     print(f"\n| Case | Facts | Visual | Seconds | Missing |\n|---|---|---|---|---|")
