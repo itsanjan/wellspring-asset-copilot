@@ -139,12 +139,12 @@ user names a visual.
 | Store | SQLite or DuckDB, plus a local vector index | No infra; reloads fast |
 | LLM | Hosted model with tool calling for the copilot; Gemma 4 via AI Studio/OpenRouter as the free fallback | Cost is part of the write-up |
 | UI | React chat with chart/map/table components | Generative UI inline |
-| Tests | Oracle scripts and a replay harness for Q1–Q18 | Proves correctness without the LLM |
+| Tests | Ground-truth scripts and a replay harness for Q1–Q18 | Proves correctness without the LLM |
 
 ## 5. Build steps
 
-1. **Data layer**: generic loader, derived views, oracle tests for Q1–Q8 _(oracle for Q1–Q8 done)_.
-2. **Document layer**: chunk manuals/SOPs; parse repair reports into facts; oracle for Q9–Q10.
+1. **Data layer**: generic loader, derived views, ground-truth tests for Q1–Q8 _(ground truth for Q1–Q8 done)_.
+2. **Document layer**: chunk manuals/SOPs; parse repair reports into facts; ground truth for Q9–Q10.
 3. **Tools + agent loop**: typed tools, citations, answer composition, first end-to-end Q1.
 4. **Generative UI**: card, table, line, bar, map, heatmap; wire to the agent output.
 5. **Overlay + memory**: corrections, scoped rules, private memory, user picker (Q11–Q14).
@@ -157,13 +157,13 @@ user names a visual.
 **Done**
 - [x] Read problem statement, dataset guide, example questions, manuals and SOPs
 - [x] Profile record counts against the guide
-- [x] Oracle reproducing Q1–Q8 (`oracle/oracle.py`)
+- [x] Ground truth reproducing Q1–Q8 (`ground_truth/ground_truth.py`)
 
 **Next**
 - [ ] Sign off the stack and model choice (see Open questions)
 - [ ] Profile data quirks: report filename variants, nulls, missed inspections, drilled-later wells
-- [ ] Parse repair reports into structured facts; oracle for Q9 and Q10
-- [ ] Write the loader and derived views as the product code, not just the oracle
+- [ ] Parse repair reports into structured facts; ground truth for Q9 and Q10
+- [ ] Write the loader and derived views as the product code, not just the ground-truth script
 - [ ] Draft tool schemas and agent prompt
 - [ ] Build the UI shell with user picker
 

@@ -1,11 +1,11 @@
-"""Ground-truth oracle: recomputes the sample answers (Q1-Q8) straight from the raw files.
+"""Ground truth: recomputes the sample answers (Q1-Q8) straight from the raw files.
 
 No LLM involved. Rules come from the manuals/SOPs:
   producing  <=> wellhead - ambient >= 15 (T200) / 20 (T350)      [T200 s9.3, T350 s3]
   downtime   = 7 days per non-producing inspection                 [dataset guide]
   corrected detections (context.jsonl note_type=correction) are not spills [SR SOP s7]
 
-Usage: python3 -I oracle/oracle.py [path/to/sample-data]
+Usage: python3 -I ground_truth/ground_truth.py [path/to/sample-data]
 """
 import glob
 import json

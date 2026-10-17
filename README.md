@@ -9,13 +9,13 @@ The LLM decides what to ask; deterministic tools decide what is true. See
 
 ## Status
 
-Early stage. The data oracle reproduces the expected answers for sample questions Q1-Q8.
+Early stage. The ground-truth script reproduces the expected answers for sample questions Q1-Q8.
 
 ## Quick start
 
 ```
 scripts/fetch_data.sh          # downloads the organizer's sample dataset into data/
-python3 -I oracle/oracle.py    # recomputes Q1-Q8 straight from the raw files
+python3 -I ground_truth/ground_truth.py    # recomputes Q1-Q8 straight from the raw files
 ```
 
 ## Layout
@@ -23,7 +23,7 @@ python3 -I oracle/oracle.py    # recomputes Q1-Q8 straight from the raw files
 | Path | What |
 |---|---|
 | `CONCEPT.md` | Proposal and architecture |
-| `oracle/` | LLM-free ground-truth calculations used as tests |
+| `ground_truth/` | LLM-free ground-truth calculations used as tests |
 | `scripts/` | Helper scripts (data fetch) |
 | `data/` | Local dataset (git-ignored) |
 
