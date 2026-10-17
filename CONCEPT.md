@@ -164,7 +164,7 @@ user names a visual.
 - [ ] Profile remaining data quirks: nulls, missed inspections, drilled-later wells (report filename variants handled by following `report_file`)
 - [x] Parse repair reports into structured facts (regex over the compliance table, 616/616 SR-02 rows); ground truth for Q10 matches (`ground_truth/reports.py`, `q10.py`)
 - [x] Ground truth for Q9 matches (`ground_truth/q9.py`, generic per well, runs across all 200 wells)
-- [ ] Write the loader and derived views as the product code, not just the ground-truth script
+- [x] Loader and derived views as product code (`wellspring/`): thresholds parsed from manuals, SQL views reproduce Q1-Q8, Q10 and Q11 costs
 - [ ] Draft tool schemas and agent prompt
 - [ ] Build the UI shell with user picker
 

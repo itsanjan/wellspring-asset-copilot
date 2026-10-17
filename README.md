@@ -16,6 +16,7 @@ Early stage. The ground-truth script reproduces the expected answers for sample 
 ```
 scripts/fetch_data.sh          # downloads the organizer's sample dataset into data/
 python3 -I ground_truth/ground_truth.py    # recomputes Q1-Q8 straight from the raw files
+python3 -m wellspring.loader --data data/sample-data --db var/wellspring.db   # build the SQLite store (about 1 s)
 ```
 
 ## Layout
@@ -25,6 +26,7 @@ python3 -I ground_truth/ground_truth.py    # recomputes Q1-Q8 straight from the 
 | `problem-statement/` | Organizer's challenge documents, copied as-is for reference |
 | `CONCEPT.md` | Proposal and architecture |
 | `docs/DIAGRAMS.md` | Flows and diagrams (Mermaid) to verify the design |
+| `wellspring/` | Product code: loader, rule parser, SQLite schema and derived views |
 | `ground_truth/` | LLM-free ground-truth calculations used as tests |
 | `scripts/` | Helper scripts (data fetch) |
 | `data/` | Local dataset (git-ignored) |
