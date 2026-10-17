@@ -175,7 +175,7 @@ def well_status(ctx, asset_ids=None, area_id=None, only_not_producing=False):
             who = "; ".join(f"{c['entry_id']} by {c['author_name']}: {c['field']} {c['original_value']} -> {c['new_value']} ({c['reason']})"
                             for c in row["corrections_applied"])
             flags.append({"kind": "correction_applied", "refs": [v["inspection_id"], v["overlay_ids"]],
-                          "message": f"{v['asset_id']}: latest reading corrected, {who}; original kept"})
+                          "message": f"{v['asset_id']}: latest reading corrected, {who}; raw value {v['raw_wellhead_temp_c']} °C kept"})
             if v["notes"]:
                 flags.append({"kind": "conflict", "refs": [v["inspection_id"]],
                               "message": f"{v['asset_id']}: inspector remark '{v['notes']}' may disagree with the corrected value"})
