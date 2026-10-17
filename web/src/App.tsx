@@ -99,7 +99,7 @@ export default function App() {
         <button className="ghost" onClick={() => setTheme(theme === "system" ? "dark" : theme === "dark" ? "light" : "system")}
           title="Theme">{theme === "system" ? "Auto" : theme === "dark" ? "Dark" : "Light"}</button>
       </header>
-      {model.ready ? <div /> : <div className="banner">The model is not available ({model.detail}), so questions will fail. History and shared knowledge still load.</div>}
+      {model.ready ? <div style={{ gridColumn: "1 / -1" }} /> : <div className="banner">The model is not available ({model.detail}), so questions will fail. History and shared knowledge still load.</div>}
 
       <aside className={`sidebar${menu ? " open" : ""}`}>
         <button className="primary" onClick={newChat}>New chat</button>
