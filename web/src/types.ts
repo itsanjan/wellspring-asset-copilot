@@ -10,7 +10,7 @@ export type LineVisual = {
   points: Record<string, number | string | null>[];
   markers: { x: string; label: string }[];
 };
-export type BarVisual = { type: "bar"; title?: string; x: string; y: string; bars: Record<string, unknown>[] };
+export type BarVisual = { type: "bar"; title?: string; x: string; y?: string; bars: Record<string, unknown>[]; stacked?: boolean; series?: { key: string; label: string }[] };
 export type MapVisual = { type: "map"; title?: string; pins: { lat: number; lon: number; label: string; detail: string }[] };
 export type HeatmapVisual = { type: "heatmap"; title?: string; rows: string[]; cols: string[]; values: number[][]; row_totals?: number[] };
 export type Visual = CardVisual | TableVisual | LineVisual | BarVisual | MapVisual | HeatmapVisual;

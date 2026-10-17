@@ -755,6 +755,9 @@ TOOLS = {
 }
 
 
+from . import fieldtools  # noqa: E402,F401  registers the operator-note and document tools in TOOLS
+
+
 def tool_definitions():
     """Anthropic tool definitions, in a fixed order so the prompt prefix stays cacheable."""
     defs = []

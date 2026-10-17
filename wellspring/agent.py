@@ -17,7 +17,7 @@ import sqlite3
 import uuid
 from datetime import datetime, timezone
 
-from . import llm, tools
+from . import fieldtools, llm, tools
 from .overlay import OverlayError
 
 MAX_STEPS = 12
@@ -50,8 +50,19 @@ How to work:
 - Rules (production thresholds, spill classes, deadlines) live in the manuals and SOPs; the tools apply them and
   return the source. Cite record IDs (inspections, repairs, reports, regulator events, notes, OVL- entries) and
   document sections inline.
-- "Right now" means each well's latest inspection. Periods like "last 4 months" end today. A repair belongs to a
-  period by its start date. Today is {today}.
+- "Right now" means each well's current state today: its latest inspection, unless a newer shut-in or restart
+  operator note overrides it (SOP-OPS OPS-3; well_status and status_conflicts apply this). Plugged and abandoned
+  wells are closed for good. Periods like "last 4 months" end today. A repair belongs to a period by its start
+  date. Today is {today}.
+- If a question needs a measurement the tools do not provide (pressure, oil volumes, flow rates), call
+  data_coverage and say plainly that the data does not contain it; offer what the data does show and label any
+  proxy as a proxy. Never present a proxy (e.g. temperature, producing days) as the thing that was asked for.
+- Use the dedicated tools: gas_reports (gas odor responses, H2S readings), bypasses (temporary bypasses and MOC
+  approvals), status_conflicts (inspection vs operator notes), operator_concerns (wells that sound or behave
+  wrong), recalled_pumps (supplier recall), letter_compliance (regulator letters), freeze_checks (cold weather),
+  shut_in_delays (what repairs wait on), temperature_by_area (which areas run hotter), team_info (team lead and
+  wells), production_proxy (no volumes: proxy only), search_docs/read_doc_section for what an SOP says.
+- Say where every fact came from: a record ID, a document section, or a person (OVL- entry with their name).
 - When something is not producing and no record explains it, say so plainly and suggest a check. Do not invent causes.
 - Explain the numbers: when a tool reports records it excluded (e.g. detections corrected as not oil) or the cause
   of a period (possible_causes, notes), say so with their IDs.
@@ -66,6 +77,12 @@ How to work:
   mention any record that disagrees.
   When the user states a fact about a well ("shut in from 17 Oct", "running fine"), record it with
   record_well_statement, passing claimed_status when the statement says the well is or is not producing.
+  When the user says a recalled pump was swapped but no work order exists, use report_equipment_swap; if they
+  are passing on what someone else said ("Nathan told me..."), pass relayed_from with that person's name. A
+  user report is not a work order: never state that a pump IS replaced on someone's word; say who reported it,
+  when, and that the records still show the recalled pump. If the person named never said it, say so.
+- When a user states a personal display preference ("just for me", "sort by...", "show costs in thousands"),
+  save it with set_my_preference. It applies only to that user; tables are then sorted and converted for them.
 - Questions about "what we discussed before" use recall_my_conversations, which only ever returns the current
   user's own history. If it has nothing, or nothing that matches what the user describes (e.g. they say "three
   wells" but their history has one), say there is no such earlier conversation with this user; never substitute.
@@ -107,8 +124,13 @@ class Copilot:
                 raise ValueError(f"unknown user {user_id}")
             conversation_id = conversation_id or f"conv-{uuid.uuid4().hex[:12]}"
             ctx = tools.Context(con, user_id, conversation_id=conversation_id)
-            user_name = con.execute("SELECT name FROM users WHERE user_id = ?", (user_id,)).fetchone()[0]
-            prompt = f"[{user_name}, {user_id}] {question}"
+            user_name, role, team = con.execute("SELECT u.name, u.role, IFNULL(t.name, u.team_id) FROM users u "
+                                                "LEFT JOIN teams t ON t.team_id = u.team_id WHERE u.user_id = ?", (user_id,)).fetchone()
+            prefs = fieldtools.user_prefs(con, user_id)
+            mine = ", ".join(a for (a,) in con.execute("SELECT DISTINCT a.name FROM wells w JOIN areas a USING (area_id) JOIN users u "
+                                                       "ON u.team_id = w.team_id WHERE u.user_id = ? ORDER BY 1", (user_id,)))
+            who = f"[{user_name}, {user_id}] [{(role or '').replace('_', ' ')}, {team}" + (f"; their area: {mine}]" if mine else "]")
+            prompt = who + (f" [their saved preferences: {prefs}]" if prefs else "") + f" {question}"
             state = self._states.get(conversation_id)
             if state is None:
                 system = INSTRUCTIONS.format(today=ctx.today.isoformat(), directory=directory(con))
@@ -117,6 +139,9 @@ class Copilot:
             else:
                 state["messages"].append({"role": "user", "content": prompt})
             answer = self._loop(ctx, state, question)
+            prefs = fieldtools.user_prefs(con, user_id)  # re-read: this turn may have saved one
+            if prefs and answer.get("visual"):
+                answer["visual"] = fieldtools.apply_prefs(answer["visual"], prefs)
             self._save_turns(con, conversation_id, user_id, question, answer)
             answer["conversation_id"] = conversation_id
             return answer

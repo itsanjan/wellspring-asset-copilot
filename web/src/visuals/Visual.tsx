@@ -163,7 +163,53 @@ const shortDate = (s: string) => (/^\d{4}-\d{2}-\d{2}/.test(s) ? new Date(s + "T
 
 // --- bar: one series, one color, value at the tip, thin rounded columns ---
 
+const SERIES = ["var(--series-1)", "var(--series-2)", "var(--series-3)", "var(--series-4)", "var(--series-5)"];
+
+// Stacked bars: one segment per series in fixed categorical order, 2px surface gap between segments,
+// rounded ends only on the top segment, legend always shown (identity is never color alone).
+function StackedBarV({ v }: { v: BarVisual }) {
+  const series = v.series ?? [];
+  return (
+    <div>
+      <div style={{ width: "100%", height: 300 }}>
+        <ResponsiveContainer>
+          <BarChart data={v.bars} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
+            <CartesianGrid stroke="var(--grid)" vertical={false} />
+            <XAxis dataKey={v.x} tick={{ fill: "var(--muted)", fontSize: 12 }} stroke="var(--axis)" interval={0} />
+            <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} stroke="var(--axis)" width={44} allowDecimals={false} />
+            <Tooltip cursor={{ fill: "var(--surface-2)" }} content={<StackTip series={series} />} />
+            {series.map((s, i) => (
+              <Bar key={s.key} dataKey={s.key} name={s.label} stackId="a" fill={SERIES[i % SERIES.length]} barSize={24}
+                stroke="var(--surface)" strokeWidth={2} isAnimationActive={false}
+                radius={i === series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]} />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="legend">
+        {series.map((s, i) => <span key={s.key}><i className="square" style={{ background: SERIES[i % SERIES.length] }} />{s.label}</span>)}
+      </div>
+    </div>
+  );
+}
+function StackTip({ active, payload, label: x, series }: TipProps & { series: { key: string; label: string }[] }) {
+  if (!active || !payload?.length) return null;
+  const p = payload[0].payload;
+  const total = series.reduce((a, s) => a + (Number(p[s.key]) || 0), 0);
+  return (
+    <div className="tip">
+      <div className="l">{x}</div>
+      {series.map((s, i) => (
+        <div key={s.key}><i className="square" style={{ background: SERIES[i % SERIES.length], marginRight: 6 }} />
+          <span className="v">{fmt(p[s.key])}</span> <span className="l">{s.label} ({total ? Math.round((100 * (Number(p[s.key]) || 0)) / total) : 0}%)</span></div>
+      ))}
+    </div>
+  );
+}
+
 function BarV({ v }: { v: BarVisual }) {
+  if (v.stacked && v.series?.length) return <StackedBarV v={v} />;
+  const y = v.y ?? "value";
   return (
     <div style={{ width: "100%", height: 280 }}>
       <ResponsiveContainer>
@@ -172,8 +218,8 @@ function BarV({ v }: { v: BarVisual }) {
           <XAxis dataKey={v.x} tick={{ fill: "var(--muted)", fontSize: 12 }} stroke="var(--axis)" interval={0} />
           <YAxis tick={{ fill: "var(--muted)", fontSize: 12 }} stroke="var(--axis)" width={56} tickFormatter={compact} />
           <Tooltip cursor={{ fill: "var(--surface-2)" }} content={<BarTip v={v} />} />
-          <Bar dataKey={v.y} fill="var(--series-1)" barSize={24} radius={[4, 4, 0, 0]} isAnimationActive={false}>
-            <LabelList dataKey={v.y} position="top" fill="var(--ink-2)" fontSize={12} formatter={(x: number) => fmt(x)} />
+          <Bar dataKey={y} fill="var(--series-1)" barSize={24} radius={[4, 4, 0, 0]} isAnimationActive={false}>
+            <LabelList dataKey={y} position="top" fill="var(--ink-2)" fontSize={12} formatter={(x: number) => fmt(x)} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>
@@ -183,9 +229,10 @@ function BarV({ v }: { v: BarVisual }) {
 function BarTip({ active, payload, v }: TipProps & { v: BarVisual }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
+  const y = v.y ?? "value";
   return (
     <div className="tip">
-      <div className="v">{fmt(p[v.y])} <span className="l">{label(v.y)}</span></div>
+      <div className="v">{fmt(p[y])} <span className="l">{label(y)}</span></div>
       {Object.entries(p).filter(([k]) => k !== v.y).map(([k, val]) => <div key={k} className="l">{label(k)}: {fmt(val)}</div>)}
     </div>
   );

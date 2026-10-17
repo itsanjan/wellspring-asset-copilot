@@ -63,6 +63,16 @@ def main():
         run("spills", asset_ids=[w])
     run("search_docs", query="spill reporting deadline")
     run("read_doc_section", doc_id=con.execute("SELECT doc_id FROM doc_chunks WHERE doc_kind='manual' LIMIT 1").fetchone()[0])
+    # Tools for operator notes and the extra documents: they return empty results on data without them.
+    for name, kw in [("gas_reports", {}), ("bypasses", {}), ("status_conflicts", {}), ("operator_concerns", {}), ("recalled_pumps", {}),
+                     ("freeze_checks", {}), ("shut_in_delays", {}), ("temperature_by_area", {}), ("data_coverage", {}), ("production_proxy", {})]:
+        r = run(name, **kw)
+        if r:
+            print(f"  {name}: {len(r['rows'])} rows")
+    if con.execute("SELECT COUNT(*) FROM letters").fetchone()[0]:
+        run("letter_compliance")
+    team = con.execute("SELECT name FROM teams LIMIT 1").fetchone()[0]
+    run("team_info", team=team)
     unknown = con.execute("SELECT COUNT(*) FROM v_inspection WHERE producing IS NULL").fetchone()[0]
     if unknown:
         print(f"  WARNING: {unknown} inspections have unknown producing status (well type without a parsed threshold)")
