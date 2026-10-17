@@ -4,7 +4,7 @@ Scope: Wellspring, the asset-intelligence copilot for the FlytBase Hack Day chal
 This is the single place that says **what must be true, how we prove it, and whether it is proven yet**.
 
 - Last updated: 2026-10-17
-- Suite at last run (Python 3.12, app dependencies installed): **134 tests: 130 pass, 2 skipped, 2 expected failures.** The 2 skipped are the live-model e2e tests (slow; billed with Claude, free with local Ollama; run by hand). The 2 expected failures are known bugs, see section 7. On Python 3.9 without the app dependencies, the app tests skip and 81 run.
+- Suite at last run (Python 3.12, app dependencies installed): **136 tests: 132 pass, 2 skipped, 2 expected failures.** The 2 skipped are the live-model e2e tests (slow; billed with Claude, free with local Ollama; run by hand). The 2 expected failures are known bugs, see section 7. On Python 3.9 without the app dependencies, the app tests skip and 81 run.
 - Source of truth for expected answers: [`problem-statement/03-evaluation-queries.md`](../problem-statement/03-evaluation-queries.md)
 
 ## How to read status
@@ -35,7 +35,7 @@ Update the status column in the same commit that changes the code or the test. A
 | L5 E2E live model | The 18 questions through a real model, scored for facts, visual and evidence. Manual. Local Ollama is free; Claude is billed. | `tests/e2e/test_copilot.py` (2); quick Q1-Q10 runner: `scripts/run_eval.py` | `COPILOT_ADAPTER=tests.e2e.adapter:ask python3 -m unittest tests.e2e.test_copilot -v` (set `WELLSPRING_PROVIDER=anthropic` for Claude) | 🟡 Q1 run on local Gemma 4 12B with `scripts/run_eval.py`: 5/5 facts, `card` visual, 242 s. Q2-Q18 not scored. |
 | L6 Generalization | Same code on perturbed, synthetic and second datasets | `tests/test_generalization.py` (12), builders in `tests/synth.py` | same | ✅ on synthetic data; ⬜ on the organizers' test data until it arrives |
 | L7 Non-functional | Latency, cost, security, resilience | see section 5 | n/a | partly |
-| CI | All layers except L5 on every push and PR: Python 3.12 full, Python 3.9 data layer only | `.github/workflows/ci.yml` | GitHub Actions | 🟡 previous config green; the updated config (installs app dependencies) runs on the next push |
+| CI | All layers except L5 on every push and PR: Python 3.12 full, Python 3.9 data layer only | `.github/workflows/ci.yml` | GitHub Actions | ✅ green on 3.9 and 3.12; also publishes this plan and the test report to GitHub Pages |
 
 The e2e contract is documented in `tests/e2e/__init__.py`: an in-process adapter (recommended, fresh database each run) or the real HTTP API (`POST /api/ask`). Verified: an empty stub copilot fails the live-model tests with 131 "missing fact" messages, so a wrong app cannot pass.
 
@@ -210,12 +210,14 @@ The problem statement warns that a system tuned to the sample questions breaks. 
 
 Expected in the last two hours, same format as the sample. Until then, the synthetic datasets in `tests/synth.py` stand in for it.
 
-1. Put it in `data/test-data/` (git-ignored, like the sample). Do not commit it.
-2. **Load check:** `python3 -m wellspring.loader --data data/sample-data --data data/test-data --db var/wellspring.db`. Any `WARNING:` line (missing threshold for a well type, unresolved report file, orphan inspections) is a finding. Decide: data quirk to handle, or manual rule our parser missed.
-3. **Parity on the new data:** `WELLSPRING_DATA=data/test-data python3 -W ignore -m unittest tests.test_parity -v`. Read the result as:
+1. Put it in `data/test-data/` (the release has the dataset under `dataset/`; git-ignored, like the sample). Do not commit it.
+2. **Load check:** `python3 -m wellspring.loader --data data/test-data/dataset --db var/wellspring.db --fresh`. Any `WARNING:` line (missing threshold for a well type, unresolved report file, orphan inspections) is a finding. Decide: data quirk to handle, or manual rule our parser missed.
+3. **Parity on the new data:** `WELLSPRING_DATA=data/test-data/dataset python3 -W ignore -m unittest tests.test_parity -v`. Read the result as:
    - all pass: product and reference agree on every well in the new data;
    - skipped with "no rule for well types": a new well type, add its threshold to `ground_truth.THRESHOLD` from its manual and rerun;
    - producing or downtime parity fails: either a manual changed (update the reference by hand and confirm against the manual text) or the product has a bug. Never "fix" the reference to match the product without reading the manual.
 4. **Sample answers still hold** when both datasets are loaded together: `python3 -W ignore -m unittest tests.test_generalization tests.test_parity`.
 5. **Live app:** run the final questions through the copilot, record answers for page 2 of the write-up. Add the new questions to `tests/e2e/cases.py` as soon as their expected answers are known, so they become regression tests.
 6. Update the statuses in this file and the change log.
+
+| 2026-10-17 | Organizers' test data (600 wells, today = 15 Jan 2027) loaded with no warnings. Reference given the T500 threshold (25 °C, OM-T500 section 3); parity passes on all 600 wells. The product does not yet handle the new data features (operator notes, MOC memos, recall notice, regulator letter, plugged wells, late entries, cost revisions, `Parts installed`, `Follow-up`). The 11 final questions are in `tests/e2e/final_cases.py` (wording-checked, no expected answers yet). 136 tests. |

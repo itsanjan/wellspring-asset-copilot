@@ -16,7 +16,7 @@ from datetime import date, datetime, timedelta
 
 ROOT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "..", "data", "sample-data")
 TODAY = date(2026, 10, 16)
-THRESHOLD = {"T200": 15.0, "T350": 20.0}
+THRESHOLD = {"T200": 15.0, "T350": 20.0, "T500": 25.0}  # T500: OM-T500 section 3
 
 
 def jl(path):

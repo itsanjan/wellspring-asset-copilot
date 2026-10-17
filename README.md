@@ -13,7 +13,7 @@ Working end to end: loader, SQLite store with derived views, a shared overlay (c
 notes, claims), 15 typed tools, a provider-neutral agent loop, an HTTP API and a React chat UI.
 
 - **Verified without a model:** the tool layer reproduces the organizers' expected facts for Q1-Q18, and the
-  product agrees with an independent ground-truth implementation on all 200 wells (134 automated tests, run in CI).
+  product agrees with an independent ground-truth implementation on all 200 wells (136 automated tests, run in CI).
 - **Not yet verified:** how real models answer. First live check on the default local model (Gemma 4 12B):
   Q1 passed all 5 expected facts with the right visual, in about 4 minutes. Q2-Q18 are not scored yet.
 - **Known bugs:** two, both pinned by tests and listed in the QA plan (a NULL temperature counts as downtime;
