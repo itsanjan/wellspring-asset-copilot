@@ -49,7 +49,6 @@ class ParseManualTest(unittest.TestCase):
         out = self.parse(BASE.replace("**15 °C above", "**17.5 °C above"))
         self.assertEqual(out["producing_delta_c"][0], 17.5)
 
-    @unittest.expectedFailure  # rules.ALARM expects "at or below **85" but manuals bold "**at or below 85 °C**"
     def test_alarm_threshold_in_manual_wording(self):
         body = BASE + "\n### 9.4 Temperature alarm\nThe wellhead must stay **at or below 85 °C**.\n"
         self.assertEqual(self.parse(body)["temp_alarm_c"], (85.0, "OM-T200 section 9.4"))

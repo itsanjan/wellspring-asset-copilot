@@ -32,10 +32,12 @@ def _sections(text):
 
 def parse_manual(path):
     """Return {name: (value, source)} for one manual."""
-    doc_id = re.search(r"Document ID:\s*(\S+)", open(path).read())
+    with open(path) as f:
+        text = f.read()
+    doc_id = re.search(r"Document ID:\s*(\S+)", text)
     doc = doc_id.group(1) if doc_id else os.path.basename(path)
     out = {}
-    for sec, heading, body in _sections(open(path).read()):
+    for sec, heading, body in _sections(text):
         src = f"{doc} section {sec}"
         if m := PRODUCING.search(body):
             out["producing_delta_c"] = (float(m.group(1)), src)
