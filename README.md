@@ -41,6 +41,8 @@ printf 'FROM gemma4:12b\nPARAMETER num_ctx 32768\n' > /tmp/Modelfile && ollama c
 .venv/bin/python scripts/check_dataset.py   # smoke-check a loaded dataset, no model needed
 
 # Web UI (chat, user picker, inline visuals, citations)
+scripts/run.sh            # one step: load data, build the UI, serve on :8000 (--test for the test dataset)
+# or by hand:
 (cd web && npm install && npm run build)
 .venv/bin/python -m uvicorn wellspring.server:app --port 8000   # open http://localhost:8000
 # for UI development: run the server as above, then `cd web && npm run dev` (http://localhost:5173, proxies /api)
